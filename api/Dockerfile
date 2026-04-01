@@ -1,9 +1,9 @@
 FROM node:22-alpine
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
-COPY package.json ./
+COPY api/package.json ./
 RUN npm install --omit=dev
-COPY server.js ./
+COPY api/server.js ./
 VOLUME ["/app/data"]
 ENV PORT=5008
 ENV DB_PATH=/app/data/cashflow.db

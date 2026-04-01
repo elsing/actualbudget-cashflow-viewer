@@ -1,9 +1,9 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json ./
+COPY dashboard/package.json ./
 RUN npm install --omit=dev
 RUN npm ci
-COPY . .
+COPY dashboard/ .
 RUN npm run build
 ENV PORT=5007
 EXPOSE 5007

@@ -227,7 +227,47 @@ export function useLoadData(config) {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const j = await r.json();
           const txs = (j.data??j??[]);
-          const nonTransfer = txs.filter(tx=>!tx.transfer_id);
+          // Expand split transactions: replace parent with its children.
+          // Actual's API returns splits in two possible shapes:
+          //   A) Parent has subtransactions[] inline, children not returned separately
+          //   B) Parent + children returned as flat list with is_parent/is_child flags
+          // We handle both: extract subtransaction children from parents (shape A),
+          // and for shape B we just keep the children (is_child:true) and drop the parent.
+          const expanded = [];
+          const seenChildIds = new Set();
+
+          txs.forEach(tx => {
+            if (tx.transfer_id) return; // skip transfers entirely
+
+            if (tx.subtransactions?.length > 0) {
+              // Shape A — parent with embedded children. Use the children.
+              tx.subtransactions.forEach(child => {
+                seenChildIds.add(child.id);
+                expanded.push({
+                  ...tx,                        // inherit date, payee, account from parent
+                  id:       child.id,
+                  amount:   child.amount ?? 0,
+                  category: child.category,     // real category on the child
+                  is_child: true,
+                  parent_id: tx.id,
+                });
+              });
+              return; // don't add the parent itself
+            }
+
+            if (tx.is_parent === true) {
+              // Shape B parent with no inline children — children come as separate records.
+              // Skip the parent; the children will appear later in the loop.
+              return;
+            }
+
+            // Normal transaction or shape-B child — include it
+            if (!seenChildIds.has(tx.id)) {
+              expanded.push(tx);
+            }
+          });
+
+          const nonTransfer = expanded;
 
           nonTransfer.forEach(tx => {
             const mKey = tx.date?.slice(0,7); if (!mKey) return;
@@ -249,8 +289,10 @@ export function useLoadData(config) {
               category:cat, amount:amt, account:acct.name, isIncome,
             });
           });
+          const parentSplits = txs.filter(tx=>tx.subtransactions?.length>0||tx.is_parent===true).length;
+          const childCount   = nonTransfer.filter(tx=>tx.is_child).length;
           totalTx += nonTransfer.length;
-          updateLast("ok",`${nonTransfer.length} tx (${txs.length-nonTransfer.length} transfers excluded)`);
+          updateLast("ok",`${nonTransfer.length} tx · ${txs.filter(tx=>tx.transfer_id).length} transfers excluded · ${parentSplits} splits expanded (${childCount} children)`);
         } catch(e) {
           updateLast("warn",`Skipped — ${e.message}`);
         }

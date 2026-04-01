@@ -1,0 +1,38 @@
+
+name: "Actual Budget Cashflow Dashboard - Deploy to Production"
+
+on:
+  push:
+    branches:
+      - main
+    # Only run on changes to the relevant code
+    paths:
+      - 'src/**'
+      - 'public/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: "Deploy repo"
+    runs-on: [docker, self-hosted]
+
+    steps:
+      # Download repo
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Build the API server and make a Docker image of it
+      - name: Build Docker image
+        run: docker build -t cashflow-api:latest -f api/Dockerfile .
+
+      # Build the dashboard and make a Docker image of it
+      - name: Build Docker image
+        run: docker build -t cashflow-dashboard:latest -f dashboard/Dockerfile .
+
+      # If already up, take it down
+      - name: Stop and remove existing container
+        run: docker compose down || true
+        
+      # Start the app once again
+      - name: Start container with Docker Compose
+        run: docker compose up -d

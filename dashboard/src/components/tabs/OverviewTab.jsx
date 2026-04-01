@@ -167,7 +167,7 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
       if(!groups[g])groups[g]=[];
       groups[g].push(c);
     });
-    return Object.entries(groups).map(([name,cats])=>({name,cats}));
+    return Object.entries(groups).map(([name,cats])=>({name,cats:cats.sort((a,b)=>b.avg-a.avg)}));
   },[catTotals,hasGroups,showGroups]);
 
   return (

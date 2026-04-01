@@ -1,9 +1,12 @@
 export const C = {
-  bg:"#07101f", surface:"#0c1929", elevated:"#101f33", border:"#172538",
-  amber:"#f5a623", amberLow:"#3d2a0a", amberMid:"#7a5112",
+  // Backgrounds — lifted significantly
+  bg:"#0d1b2e", surface:"#142338", elevated:"#1a2d45", border:"#243d5a",
+  // Accent colours — unchanged, they work
+  amber:"#f5a623", amberLow:"#4a3310", amberMid:"#8c5f1a",
   teal:"#2dd4bf", red:"#f87171", blue:"#60a5fa", purple:"#a78bfa",
   green:"#4ade80", orange:"#fb923c", pink:"#f472b6", yellow:"#facc15",
-  muted:"#3d5570", text:"#c5d8ef", textDim:"#5a7490",
+  // Text — brighter for readability
+  muted:"#4a6580", text:"#d8eaf8", textDim:"#7a9ab8",
 };
 
 export const FONT = "'IBM Plex Mono', monospace";

@@ -46,6 +46,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
   const [balRange,    setBalRange]    = useState(6);
   const [projScenId,  setProjScenId]  = useState(scenarios?.[0]?.id||null);
   const [txOpen,      setTxOpen]      = useState(false);
+  const [showProj,    setShowProj]    = useState(true);
 
   const activeAccountNames = selAccounts ?? allAccountNames;
   const activeAccountObjs  = rawAccountObjects.filter(a => activeAccountNames.includes(a.name));
@@ -130,36 +131,44 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     } else { setRangeStart(month); setRangeEnd(null); }
   };
 
+  const curMon = currentMonthKey();
+  // Exclude the current (partial) month from the balance chart — its data is incomplete
+  const completeDisplayMonths = allMonthsDisplay.filter(m=>m.month<curMon);
   const balMonths = rangeStart&&rangeEnd
-    ? allMonthsDisplay.filter(m=>m.month>=rangeStart&&m.month<=rangeEnd)
-    : allMonthsDisplay.slice(-balRange);
+    ? allMonthsDisplay.filter(m=>m.month>=rangeStart&&m.month<=rangeEnd&&m.month<curMon)
+    : completeDisplayMonths.slice(-balRange);
 
   const projScen   = scenarios?.find(s=>s.id===projScenId)||scenarios?.[0];
-  const lastActual = allMonthsDisplay[allMonthsDisplay.length-1];
+  const lastActual = completeDisplayMonths[completeDisplayMonths.length-1];
+  // Only project when the chart is showing up to the present (not a historical range)
+  const chartEndsNow = !rangeEnd || rangeEnd >= (completeDisplayMonths[completeDisplayMonths.length-1]?.month||"");
 
-  // Monthly projection points (3 months ahead)
+  // Monthly projection (3 months ahead from last complete month)
   const projPoints = useMemo(() => {
     if (!projScen||!lastActual) return [];
     const pInc = resolveIncome(projScen.income, data);
     const pOut = projScen.rows.filter(r=>r.enabled).reduce((a,r)=>a+resolveRow(r,pInc,data),0);
     const pNet = pInc - pOut;
     let bal = lastActual.endBalance;
-    return [1,2,3].map(i=>{
+    // Bridge point: give the last actual month BOTH a balance AND a projBalance
+    // so the projected line starts exactly where the actual line ends — no gap.
+    const points = [{month:lastActual.month, projBalance:bal}];
+    [1,2,3].forEach(i=>{
       const d = new Date(lastActual.month+"-01"); d.setMonth(d.getMonth()+i);
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
       bal += pNet;
-      return {month:key, projBalance:bal};
+      points.push({month:key, projBalance:bal});
     });
+    return points;
   }, [projScen, lastActual, data]);
 
   const balChartData = [
     ...balMonths.map(m=>({month:m.month,balance:m.endBalance})),
-    ...projPoints.map(p=>({month:p.month,projBalance:p.projBalance})),
+    ...(showProj&&chartEndsNow ? projPoints.map(p=>({month:p.month,projBalance:p.projBalance})) : []),
   ];
 
   // Day-by-day
   const today  = todayStr();
-  const curMon = currentMonthKey();
   const isCurrentMonth = selMonth === curMon;
   // selMData for display (start = end of day 1) — used for the header summary
   const selMData = allMonthsDisplay.find(m=>m.month===selMonth);
@@ -333,6 +342,10 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
                 fontWeight:balRange===r?700:400,border:`1px solid ${balRange===r?C.amber:C.border}`,
                 background:balRange===r?C.amber:"transparent",color:balRange===r?"#060e1a":C.textDim}}>{r}mo</button>
             ))}
+            <button onClick={()=>setShowProj(o=>!o)} style={{fontFamily:FONT,fontSize:11,padding:"5px 12px",borderRadius:6,cursor:"pointer",
+              border:`1px solid ${showProj?C.amber:C.border}`,background:showProj?`${C.amber}22`:"transparent",color:showProj?C.amber:C.textDim}}>
+              {showProj?"projection on":"projection off"}
+            </button>
             {rangeStart&&rangeEnd&&<button onClick={()=>{setRangeStart(null);setRangeEnd(null);}}
               style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"4px 10px",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>clear</button>}
             {projScen&&scenarios?.length>0&&(
@@ -400,15 +413,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
             const idx     = allMonthsDisplay.findIndex(mo=>mo.month===m.month);
             const fromEnd = allMonthsDisplay.length-1-idx;
 
-            if (fromEnd>=12) return (
-              <div key={m.month} onClick={()=>setSelMonth(m.month)}
-                title={`${fmtM(m.month)} · ${fmt(m.startBalance)} → ${fmt(m.endBalance)}`}
-                style={{background:bg,border:`1.5px solid ${bc}`,borderRadius:6,padding:"4px 9px",cursor:"pointer",opacity:0.5,display:"flex",alignItems:"center",gap:5}}>
-                <span style={{color:isSelected?C.amber:C.textDim,fontSize:9,fontFamily:FONT}}>{fmtM(m.month)}</span>
-                {marker&&<span style={{fontSize:9,color:marker==="good"?C.green:C.red}}>{marker==="good"?"✓":"✗"}</span>}
-              </div>
-            );
-
+            // All months older than 6 use the hover card — same UI, just smaller when not hovered
             if (fromEnd>=6) return (
               <HoverCard key={m.month} m={m} bc={bc} bg={bg} marker={marker} isSelected={isSelected}
                 onSelect={setSelMonth} onCycle={cycle} onRange={handleRange} inRange={inRange} isAnchor={isAnchor}/>

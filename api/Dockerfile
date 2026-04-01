@@ -1,0 +1,11 @@
+FROM node:22-alpine
+RUN apk add --no-cache python3 make g++
+WORKDIR /app
+COPY package.json ./
+RUN npm install --omit=dev
+COPY server.js ./
+VOLUME ["/app/data"]
+ENV PORT=5008
+ENV DB_PATH=/app/data/cashflow.db
+EXPOSE 5008
+CMD ["node", "server.js"]

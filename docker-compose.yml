@@ -20,7 +20,7 @@ services:
     ports:
       - "5008:5008"
     volumes:
-      - ./cashflow-data:/app/data
+      - cashflow-data:/app/data
     environment:
       DB_PATH: "/app/data/cashflow.db"
       # Uncomment to require auth:
@@ -33,3 +33,6 @@ services:
     ports:
       - "5007:5007"
     restart: unless-stopped
+
+volumes:
+  cashflow-data:

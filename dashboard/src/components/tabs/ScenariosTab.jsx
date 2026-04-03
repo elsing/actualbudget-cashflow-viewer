@@ -72,7 +72,7 @@ function IncomeEditor({ income, onChange, data }) {
           <div style={{color:C.teal,fontSize:32,fontWeight:700}}>{fmt(resolved)}</div>
           <div style={{color:C.textDim,fontSize:11,marginTop:5}}>{desc()}</div>
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:280}}>
+        <div data-income-editor style={{display:"flex",flexDirection:"column",gap:8,minWidth:280}}>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {[{v:"cats",l:"By Category"},{v:"live",l:"All Income"},{v:"fixed",l:"Fixed £"},{v:"pct_live",l:"± %"}].map(({v,l})=>(
               <button key={v} onClick={()=>onChange({...income,type:v})} style={{
@@ -278,7 +278,7 @@ function ScenarioEditor({ scenario, data, onChange, groups, onGroupsChange }) {
   const remaining = incomeAmt - totalOut;
 
   return (
-    <div style={{display:"flex",flexDirection:"column",maxWidth:900}}>
+    <div data-scenario-editor style={{display:"flex",flexDirection:"column",maxWidth:900}}>
       <IncomeEditor income={scenario.income} data={data} onChange={inc=>onChange({...scenario,income:inc})}/>
       <div style={{background:C.elevated,borderLeft:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,padding:"6px 22px",display:"flex",alignItems:"center",gap:8}}>
         <div style={{flex:1,height:1,background:C.border}}/>
@@ -474,7 +474,7 @@ function ScenarioTabBar({ scenarios, activeId, setActiveId, view, setView, onSce
   };
 
   return (
-    <div style={{display:"flex",alignItems:"stretch",borderBottom:`1px solid ${C.border}`,marginBottom:20,flexWrap:"wrap",gap:0}}>
+    <div data-scenario-tab-bar style={{display:"flex",alignItems:"stretch",borderBottom:`1px solid ${C.border}`,marginBottom:20,flexWrap:"wrap",gap:0}}>
       {scenarios.map((s,si)=>{
         const isActive = activeId===s.id&&view==="edit";
         return (

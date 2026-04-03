@@ -2,40 +2,59 @@ import { useState, useMemo } from "react";
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { C, FONT, CAT_PALETTE } from "../../constants.js";
 import { fmt, fmtM, completeMonths } from "../../helpers.js";
-import { catSpend } from "../../finance.js";
+import { catSpend, catNet } from "../../finance.js";
 import { Chip, ChartTip, RangeButtons } from "../ui/index.jsx";
 
 const yFmt = v => `£${Math.abs(v/100).toLocaleString("en-GB",{maximumFractionDigits:0})}`;
 
+// ── Overview tab ──────────────────────────────────────────────────────────────
 export function OverviewTab({ data, uiState={}, setUi=()=>{} }) {
-  const range     = uiState.overviewRange ?? 6;
-  const setRange  = v => setUi({overviewRange:v});
-  const vis       = uiState.overviewVis ?? {income:true,expenses:true,net:true};
-  const setVis    = fn => setUi({overviewVis: typeof fn==="function" ? fn(vis) : fn});
-  const [showFilter,setShowFilter] = useState(false);
-  const selCats   = uiState.overviewCats ?? null;
-  const setSelCats= v => setUi({overviewCats: typeof v==="function" ? v(selCats) : v});
+  const range      = uiState.overviewRange ?? 6;
+  const setRange   = v => setUi({overviewRange:v});
+  const vis        = uiState.overviewVis ?? {income:true,expenses:true,net:true};
+  const setVis     = fn => setUi({overviewVis: typeof fn==="function" ? fn(vis) : fn});
+  const selCats    = uiState.overviewCats ?? null;       // null = all expense cats
+  const setSelCats = v => setUi({overviewCats: typeof v==="function" ? v(selCats) : v});
+  const incomeCats = uiState.overviewIncomeCats ?? null; // null = use m.income (Actual income flag)
+  const setIncomeCats = v => setUi({overviewIncomeCats: typeof v==="function" ? v(incomeCats) : v});
+  const [showFilter, setShowFilter] = useState(false);
 
-  const allCats    = data.categories;
-  const activeCats = selCats ?? allCats;
-  const toggleCat  = cat => {
+  const allCats          = data.categories;
+  const allIncomeCats    = data.incomeCategories || [];
+  const activeCats       = selCats ?? allCats;
+  const activeIncomeCats = incomeCats ?? null; // null = use m.income
+
+  const toggleCat = cat => {
     const n = activeCats.includes(cat)?activeCats.filter(c=>c!==cat):[...activeCats,cat];
     setSelCats(n.length===allCats.length?null:n);
+  };
+  const toggleIncomeCat = cat => {
+    const cur = activeIncomeCats ?? allIncomeCats;
+    const n = cur.includes(cat)?cur.filter(c=>c!==cat):[...cur,cat];
+    setIncomeCats(n.length===allIncomeCats.length?null:n);
   };
 
   const months   = data.months.slice(-range);
   const complete = completeMonths(data.months).slice(-range);
 
-  // Filtered expenses = sum of selected categories (net: refunds cancel spend)
-  const filteredExpenses = m =>
-    activeCats.reduce((s,c)=>s+catSpend(m,c), 0);
+  // Income: sum net of selected income categories (positive net = income)
+  // If no income cats selected, fall back to m.income (Actual's is_income flag)
+  const filteredIncome = m => {
+    if (!activeIncomeCats) return m.income;
+    return activeIncomeCats.reduce((s,c) => {
+      const v = m.categories[c] ?? 0;
+      return s + (v > 0 ? v : 0);
+    }, 0);
+  };
 
-  // Filtered net = income from income transactions minus filtered category expenses
-  // This respects the category filter so you can see net for specific spending areas
+  // Expenses: net spend of selected expense categories
+  const filteredExpenses = m => activeCats.reduce((s,c) => s + catSpend(m,c), 0);
+
+  // Net: income minus expenses using the filtered values
   const filteredNet = m =>
-    selCats===null
-      ? m.endBalance - m.startBalance   // use calibrated balance when no filter
-      : m.income - filteredExpenses(m); // use tx-based when filtering
+    selCats===null && !activeIncomeCats
+      ? m.endBalance - m.startBalance   // calibrated when no filter active
+      : filteredIncome(m) - filteredExpenses(m);
 
   const last = months[months.length-1];
   const prev = months[months.length-2];
@@ -43,34 +62,32 @@ export function OverviewTab({ data, uiState={}, setUi=()=>{} }) {
 
   const chartData = months.map(m=>({
     month:    m.month,
-    income:   m.income,
+    income:   filteredIncome(m),
     expenses: filteredExpenses(m),
     net:      filteredNet(m),
   }));
-
-
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:20}}>
       {/* Stat cards */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         {[
-          {l:"INCOME",     v:fmt(last?.income),           d:pct(last?.income,prev?.income),      c:C.teal,   sub:"from income categories"},
-          {l:"EXPENSES",   v:fmt(filteredExpenses(last)),  d:pct(filteredExpenses(last),filteredExpenses(prev)), c:C.red, sub:selCats?`${activeCats.length} categories`:"all categories"},
-          {l:"NET",        v:fmt(filteredNet(last)),       d:pct(filteredNet(last),filteredNet(prev)), c:filteredNet(last)>=0?C.amber:C.red, sub:selCats?"income − filtered cats":"end − start balance"},
-          {l:`${range}MO NET`, v:fmt(complete.reduce((a,m)=>a+filteredNet(m),0)), c:C.blue, sub:"complete months only"},
+          {l:"INCOME",     v:fmt(last?filteredIncome(last):0),  d:pct(filteredIncome(last),filteredIncome(prev)),   c:C.teal, sub:activeIncomeCats?`${activeIncomeCats.length} categories`:"income-flagged"},
+          {l:"EXPENSES",   v:fmt(last?filteredExpenses(last):0), d:pct(filteredExpenses(last),filteredExpenses(prev)),c:C.red,  sub:selCats?`${activeCats.length} categories`:"all categories"},
+          {l:"NET",        v:fmt(last?filteredNet(last):0),     d:pct(filteredNet(last),filteredNet(prev)),          c:(last?filteredNet(last):0)>=0?C.amber:C.red, sub:selCats||activeIncomeCats?"income − expenses":"end − start balance"},
+          {l:`${range}MO`, v:fmt(complete.reduce((a,m)=>a+filteredNet(m),0)), c:C.blue, sub:"cumulative net"},
         ].map(({l,v,d,c,sub})=>(
           <div key={l} style={{flex:"1 1 140px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"16px 20px"}}>
             <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:8}}>{l}</div>
             <div style={{color:c,fontSize:22,fontWeight:700}}>{v}</div>
             {d!=null&&<div style={{color:d>=0?C.teal:C.red,fontSize:11,marginTop:4}}>{d>=0?"▲":"▼"} {Math.abs(d).toFixed(1)}%</div>}
-            <div style={{color:C.muted,fontSize:9,marginTop:4,letterSpacing:1}}>{sub}</div>
+            <div style={{color:C.muted,fontSize:9,marginTop:4}}>{sub}</div>
           </div>
         ))}
       </div>
 
       {/* Controls */}
-      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <RangeButtons value={range} onChange={setRange} options={[3,6,12,24]} data={data}/>
         <div style={{flex:1}}/>
         {[{k:"income",l:"Income",c:C.teal},{k:"expenses",l:"Expenses",c:C.red},{k:"net",l:"Net",c:C.amber}].map(s=>(
@@ -78,28 +95,43 @@ export function OverviewTab({ data, uiState={}, setUi=()=>{} }) {
         ))}
         <button onClick={()=>setShowFilter(o=>!o)}
           style={{fontFamily:FONT,fontSize:10,padding:"4px 12px",borderRadius:6,cursor:"pointer",
-            border:`1px solid ${showFilter||selCats?C.amber:C.border}`,
-            background:showFilter||selCats?`${C.amber}22`:"transparent",
-            color:showFilter||selCats?C.amber:C.textDim}}>
-          {selCats?`${activeCats.length} cats`:"filter"} ▾
+            border:`1px solid ${(showFilter||selCats||activeIncomeCats)?C.amber:C.border}`,
+            background:(showFilter||selCats||activeIncomeCats)?`${C.amber}22`:"transparent",
+            color:(showFilter||selCats||activeIncomeCats)?C.amber:C.textDim}}>
+          filter ▾
         </button>
       </div>
 
-      {/* Category filter panel */}
+      {/* Filter panel */}
       {showFilter&&(
-        <div style={{background:C.surface,border:`1px solid ${C.amber}44`,borderRadius:8,padding:"14px 16px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{color:C.textDim,fontSize:10,letterSpacing:2}}>FILTER EXPENSES BY CATEGORY</div>
-            <button onClick={()=>setSelCats(selCats===null?[]:null)}
-              style={{background:"transparent",border:"none",color:C.amberMid,fontSize:11,cursor:"pointer",fontFamily:FONT}}>
-              {selCats===null?"deselect all":"select all"}
-            </button>
-          </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {allCats.map((cat,i)=>(
-              <Chip key={cat} label={cat} color={CAT_PALETTE[i%CAT_PALETTE.length]}
-                active={activeCats.includes(cat)} onClick={()=>toggleCat(cat)} small/>
-            ))}
+        <div style={{background:C.surface,border:`1px solid ${C.amber}44`,borderRadius:8,padding:"16px 18px",display:"flex",flexDirection:"column",gap:14}}>
+          {/* Income filter */}
+          {allIncomeCats.length>0&&(
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{color:C.teal,fontSize:10,letterSpacing:2}}>INCOME CATEGORIES</div>
+                <button onClick={()=>setIncomeCats(null)} style={{background:"transparent",border:"none",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>reset</button>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {allIncomeCats.map(cat=>{
+                  const active=(activeIncomeCats??allIncomeCats).includes(cat);
+                  return <Chip key={cat} label={cat} color={C.teal} active={active} small onClick={()=>toggleIncomeCat(cat)}/>;
+                })}
+              </div>
+            </div>
+          )}
+          {/* Expense filter */}
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{color:C.red,fontSize:10,letterSpacing:2}}>EXPENSE CATEGORIES</div>
+              <button onClick={()=>setSelCats(null)} style={{background:"transparent",border:"none",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>reset</button>
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {allCats.map((cat,i)=>(
+                <Chip key={cat} label={cat} color={CAT_PALETTE[i%CAT_PALETTE.length]}
+                  active={activeCats.includes(cat)} onClick={()=>toggleCat(cat)} small/>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -126,6 +158,7 @@ export function OverviewTab({ data, uiState={}, setUi=()=>{} }) {
   );
 }
 
+// ── Categories tab ────────────────────────────────────────────────────────────
 export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
   const range       = uiState.catsRange ?? 6;
   const setRange    = v => setUi({catsRange:v});
@@ -137,12 +170,11 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
 
   const allMonths = data.months.slice(-range);
   const complete  = completeMonths(data.months).slice(-range);
-
-  // Group categories if categoryGroups available
   const catGroups = data.categoryGroups||[];
   const catGroupMap = data.catGroupMap||{};
   const hasGroups = catGroups.filter(g=>!g.is_income).length>0;
 
+  // Sort by avg spend descending
   const catTotals = data.categories.map((cat,i) => ({
     name:  cat,
     color: CAT_PALETTE[i%CAT_PALETTE.length],
@@ -158,7 +190,6 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
     return r;
   });
 
-  // Group the cards
   const groupedCats = useMemo(()=>{
     if (!hasGroups||!showGroups) return [{name:null,cats:catTotals}];
     const groups = {};
@@ -167,7 +198,13 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
       if(!groups[g])groups[g]=[];
       groups[g].push(c);
     });
-    return Object.entries(groups).map(([name,cats])=>({name,cats:cats.sort((a,b)=>b.avg-a.avg)}));
+    return Object.entries(groups)
+      .map(([name,cats])=>({name,cats:cats.sort((a,b)=>b.avg-a.avg)}))
+      .sort((a,b)=>{
+        const sa=a.cats.reduce((s,c)=>s+c.avg,0);
+        const sb=b.cats.reduce((s,c)=>s+c.avg,0);
+        return sb-sa;
+      });
   },[catTotals,hasGroups,showGroups]);
 
   return (
@@ -178,7 +215,7 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
         {hasGroups&&<button onClick={()=>setShowGroups(o=>!o)}
           style={{fontFamily:FONT,fontSize:10,padding:"4px 12px",borderRadius:6,cursor:"pointer",
             border:`1px solid ${showGroups?C.amber:C.border}`,background:showGroups?`${C.amber}22`:"transparent",color:showGroups?C.amber:C.textDim}}>
-          {showGroups?"grouped":"ungrouped"}
+          {showGroups?"grouped":"flat"}
         </button>}
         {catTotals.map(cat=>(
           <Chip key={cat.name} label={cat.name} color={cat.color} active={vis[cat.name]}
@@ -202,11 +239,11 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
 
       {groupedCats.map(({name:gName,cats})=>(
         <div key={gName||"all"}>
-          {gName&&<div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:10,marginTop:4}}>{gName.toUpperCase()}</div>}
+          {gName&&<div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:8,marginTop:4}}>{gName.toUpperCase()}</div>}
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-            {cats.map(cat=>{
+            {cats.filter(cat=>vis[cat.name]).map(cat=>{
               const pct = totalAvg>0?Math.round((cat.avg/totalAvg)*100):0;
-              return vis[cat.name]&&(
+              return (
                 <div key={cat.name} onClick={()=>setVis(v=>({...v,[cat.name]:!v[cat.name]}))}
                   style={{flex:"1 1 150px",background:C.surface,border:`1px solid ${cat.color}55`,borderRadius:9,padding:"14px 16px",cursor:"pointer",minWidth:140}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
@@ -217,7 +254,7 @@ export function CategoriesTab({ data, uiState={}, setUi=()=>{} }) {
                   <div style={{background:C.bg,borderRadius:3,height:3,marginTop:8}}>
                     <div style={{width:`${pct}%`,height:"100%",background:cat.color,borderRadius:3}}/>
                   </div>
-                  <div style={{color:C.muted,fontSize:9,marginTop:4}}>avg/mo (complete months)</div>
+                  <div style={{color:C.muted,fontSize:9,marginTop:4}}>avg/mo · complete months</div>
                 </div>
               );
             })}

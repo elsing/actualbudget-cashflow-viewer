@@ -129,7 +129,7 @@ function Dashboard({ config, onDisconnect }) {
         </div>
       </div>
 
-      <div style={{borderBottom:`1px solid ${C.border}`,padding:"0 28px",display:"flex",overflowX:"auto"}}>
+      <div data-nav style={{borderBottom:`1px solid ${C.border}`,padding:"0 28px",display:"flex",overflowX:"auto"}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{
             background:"none",border:"none",
@@ -141,7 +141,7 @@ function Dashboard({ config, onDisconnect }) {
         ))}
       </div>
 
-      <div style={{padding:"24px 28px"}}>
+      <div data-content style={{padding:"24px 28px"}}>
         {tab==="flow"      && <MonthlyFlowTab  data={data} scenarios={scenarios} markers={markers} reconciliations={reconciliations} onMarkersChange={m=>update({markers:m})} onReconciliationsChange={r=>update({reconciliations:r})} uiState={uiState} setUi={setUi}/>}
         {tab==="scenarios" && <ScenariosTab    scenarios={scenarios} groups={groups} data={data} onScenariosChange={s=>update({scenarios:s})} onGroupsChange={g=>update({groups:g})}/>}
         {tab==="overview"  && <OverviewTab     data={data} uiState={uiState} setUi={setUi}/>}

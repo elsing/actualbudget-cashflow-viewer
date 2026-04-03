@@ -4,7 +4,10 @@ import { sGet, sSet } from "../../helpers.js";
 
 export default function ConnectionPanel({ onConnect }) {
   const saved = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-  const [apiUrl,   setApiUrl]   = useState(saved.apiUrl||"http://localhost:5007");
+  // Must be declared before useState calls
+  const defaultApiUrl = saved.apiUrl || `${window.location.protocol}//${window.location.hostname}:5007`;
+
+  const [apiUrl,   setApiUrl]   = useState(defaultApiUrl);
   const [apiKey,   setApiKey]   = useState(saved.apiKey||"");
   const [budgets,  setBudgets]  = useState([]);
   const [budgetId, setBudgetId] = useState(saved.budgetId||"");
@@ -14,8 +17,6 @@ export default function ConnectionPanel({ onConnect }) {
   const [step, setStep] = useState("creds");
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState("");
-
-  // On mount: load typeOverrides from DB (synced across devices)
   useEffect(() => {
     sGet(SK.conn).then(conn => {
       if (conn?.typeOverrides && Object.keys(conn.typeOverrides).length > 0) {

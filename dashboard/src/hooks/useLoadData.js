@@ -384,8 +384,9 @@ export function useLoadData(config) {
         months,
         categories: allCats,
         incomeCategories: incomeCatNames,
-        categoryGroups,   // [{id,name,is_income,categories}] — for grouping UI
-        catGroupMap,      // catName → groupName — for display
+        categoryGroups,
+        catGroupMap,
+        catIdMap: catMap,  // id→name at load time — for stable ID-based storage
         accountObjects: openAccounts.map(a=>({id:a.id,name:a.name,type:a.type||"other"})),
         accounts: openAccounts.map(a=>a.name),
         txsByAccount,

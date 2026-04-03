@@ -35,7 +35,7 @@ function HoverCard({ m, bc, bg, isSelected, onSelect, onCycle, onRange, inRange,
 }
 
 // ── Main tab ──────────────────────────────────────────────────────────────────
-export default function MonthlyFlowTab({ data, scenarios, markers, reconciliations, onMarkersChange, onReconciliationsChange }) {
+export default function MonthlyFlowTab({ data, scenarios, markers, reconciliations, onMarkersChange, onReconciliationsChange, uiState={}, setUi=()=>{} }) {
   const rawAccountObjects = data.accountObjects || [];
   const allAccountNames   = data.accounts || [];
 
@@ -46,7 +46,8 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
   const [balRange,    setBalRange]    = useState(6);
   const [projScenId,  setProjScenId]  = useState(scenarios?.[0]?.id||null);
   const [txOpen,      setTxOpen]      = useState(false);
-  const [showProj,    setShowProj]    = useState(true);
+  const showProj    = uiState.flowShowProj ?? true;
+  const setShowProj = v => setUi({flowShowProj: typeof v==="function" ? v(showProj) : v});
 
   const activeAccountNames = selAccounts ?? allAccountNames;
   const activeAccountObjs  = rawAccountObjects.filter(a => activeAccountNames.includes(a.name));
@@ -211,9 +212,10 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     return days;
   }, [selMDataRaw, selMonth, today, selAccounts]);
 
-  // Stepped projection from last transaction day
+  // Stepped projection from last transaction day — works on current month AND any past month
+  // (useful for seeing what the scenario would have predicted vs what actually happened)
   const steppedProj = useMemo(() => {
-    if (!projScen||!isCurrentMonth||!selMData||!dailyData.length) return [];
+    if (!projScen||!showProj||!selMData||!dailyData.length) return [];
     const pInc = resolveIncome(projScen.income, data);
     // Historical day-of-month per category
     const catDayMap = {};
@@ -227,7 +229,11 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     });
     const [y,mo] = selMonth.split("-");
     const dIM = new Date(+y,+mo,0).getDate();
-    const lastTxDay = dailyData.reduce((last,d)=>d.txs?.length?parseInt(d.date.split("-")[2]):last, 0) || parseInt(today.split("-")[2]);
+    // For past months: last day with transactions. For current month: today.
+    const lastTxDay = isCurrentMonth
+      ? dailyData.reduce((last,d)=>d.txs?.length?parseInt(d.date.split("-")[2]):last, 0) || parseInt(today.split("-")[2])
+      : dailyData.reduce((last,d)=>d.txs?.length?parseInt(d.date.split("-")[2]):last, 0) || dIM;
+    if (!isCurrentMonth && lastTxDay >= dIM) return []; // full month, nothing to project
 
     const events = [];
     projScen.rows.filter(r=>r.enabled).forEach(row => {
@@ -402,7 +408,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
       {/* Month cards */}
       <div>
         <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:10}}>MONTHS — click to view · ⇔ range · ○ mark</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}>
+        <div data-month-cards style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}>
           {allMonthsDisplay.map(m => {
             const marker    = markers[m.month];
             const isSelected= m.month===selMonth;
@@ -420,7 +426,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
             );
 
             return (
-              <div key={m.month} style={{background:bg,border:`2px solid ${bc}`,borderRadius:9,padding:"11px 13px",flex:"1 1 130px",minWidth:120}}>
+              <div data-month-card-full key={m.month} style={{background:bg,border:`2px solid ${bc}`,borderRadius:9,padding:"11px 13px",flex:"1 1 130px",minWidth:120}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
                   <div onClick={()=>setSelMonth(m.month)} style={{color:isSelected?C.amber:C.text,fontSize:12,fontWeight:isSelected?700:500,cursor:"pointer",fontFamily:FONT}}>{fmtM(m.month)}</div>
                   <div style={{display:"flex",gap:5}}>

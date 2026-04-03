@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { C, FONT, CAT_PALETTE } from "../../constants.js";
 import { fmt, fmtM, completeMonths } from "../../helpers.js";
-import { catSpend, catNet } from "../../finance.js";
+import { catSpend } from "../../finance.js";
 import { Chip, ChartTip, RangeButtons } from "../ui/index.jsx";
 
 const yFmt = v => `£${Math.abs(v/100).toLocaleString("en-GB",{maximumFractionDigits:0})}`;

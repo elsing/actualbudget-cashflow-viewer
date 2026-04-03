@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { C, FONT, CAT_PALETTE, TYPE_COLOR } from "../../constants.js";
-import { fmt, fmtM, fmtD, fmtR, pc, todayStr, currentMonthKey, monthEndDate } from "../../helpers.js";
+import { fmt, fmtM, fmtD, fmtR, pc, todayStr, currentMonthKey } from "../../helpers.js";
 import { resolveIncome, resolveRow, liveAvg, liveLastCompleteMonth } from "../../finance.js";
 import { completeMonths } from "../../helpers.js";
 import { ChartTip } from "../ui/index.jsx";

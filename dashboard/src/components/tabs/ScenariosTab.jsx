@@ -180,6 +180,35 @@ function TxDrillDown({ cats, data, type }) {
   );
 }
 
+// ── Number input helpers (local draft avoids cursor-jump on each keystroke) ──────
+function FixedInput({ label, value, onChange, suffix }) {
+  const [draft, setDraft] = useState(fmtR(value));
+  // Sync if parent changes (e.g. reset)
+  const commit = () => { const v=pc(draft); onChange(v); setDraft(fmtR(v)); };
+  return (
+    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+      {label&&<span style={{color:C.textDim,fontSize:11}}>{label}:</span>}
+      <input type="number" value={draft}
+        onChange={e=>setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e=>e.key==="Enter"&&commit()}
+        style={{width:110,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",color:C.amber,fontSize:12,fontFamily:FONT,outline:"none"}}/>
+      <span style={{color:C.textDim,fontSize:11}}>{fmt(pc(draft))}{suffix}</span>
+    </div>
+  );
+}
+function PctInput({ value, onChange }) {
+  const [draft, setDraft] = useState(String(value));
+  const commit = () => { const v=parseFloat(draft)||0; onChange(v); setDraft(String(v)); };
+  return (
+    <input type="number" value={draft} step={0.5}
+      onChange={e=>setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e=>e.key==="Enter"&&commit()}
+      style={{width:80,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",color:C.amber,fontSize:12,fontFamily:FONT,outline:"none"}}/>
+  );
+}
+
 // ── Row editor ────────────────────────────────────────────────────────────────
 function RowEditor({ row, income, data, onChange, onDelete, allCats, groups }) {
   const [editing, setEditing] = useState(false);
@@ -221,19 +250,13 @@ function RowEditor({ row, income, data, onChange, onDelete, allCats, groups }) {
         </select>
       </div>
       {editType==="fixed"&&(
-        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
-          <span style={{color:C.textDim,fontSize:11}}>Amount:</span>
-          <input type="number" value={fmtR(row.amount??0)} onChange={e=>onChange({...row,amount:pc(e.target.value)})}
-            style={{width:110,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",color:C.amber,fontSize:12,fontFamily:FONT,outline:"none"}}/>
-          <span style={{color:C.textDim,fontSize:11}}>{fmt(row.amount??0)}/mo</span>
-        </div>
+        <FixedInput label="Amount" value={row.amount??0} onChange={v=>onChange({...row,amount:v})} suffix="/mo"/>
       )}
       {editType==="percent"&&(
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
-          <span style={{color:C.textDim,fontSize:11}}>Percent of income:</span>
-          <input type="number" value={row.pct??0} onChange={e=>onChange({...row,pct:parseFloat(e.target.value)||0})} step={0.5}
-            style={{width:80,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",color:C.amber,fontSize:12,fontFamily:FONT,outline:"none"}}/>
-          <span style={{color:C.textDim,fontSize:11}}>{row.pct??0}% = {fmt(Math.round(income*(row.pct??0)/100))}/mo</span>
+          <span style={{color:C.textDim,fontSize:11}}>% of income:</span>
+          <PctInput value={row.pct??0} onChange={v=>onChange({...row,pct:v})}/>
+          <span style={{color:C.textDim,fontSize:11}}>= {fmt(Math.round(income*(row.pct??0)/100))}/mo</span>
         </div>
       )}
       {(editType==="live"||editType==="last")&&(
@@ -513,6 +536,11 @@ function ScenarioTabBar({ scenarios, activeId, setActiveId, view, setView, onSce
         borderBottom:`2px solid ${view==="compare"?C.amber:"transparent"}`,background:view==="compare"?`${C.amber}11`:"transparent"}}>
         <span style={{color:view==="compare"?C.amber:C.textDim,fontSize:11,fontFamily:FONT}}>⇄ Compare</span>
       </div>
+      {/* Projection tab */}
+      <div onClick={()=>setView("projection")} style={{display:"flex",alignItems:"center",padding:"8px 14px",cursor:"pointer",
+        borderBottom:`2px solid ${view==="projection"?C.teal:"transparent"}`,background:view==="projection"?`${C.teal}11`:"transparent"}}>
+        <span style={{color:view==="projection"?C.teal:C.textDim,fontSize:11,fontFamily:FONT}}>📅 Projection</span>
+      </div>
 
       {/* Actions */}
       <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center",padding:"0 8px"}}>
@@ -535,7 +563,6 @@ function ScenarioTabBar({ scenarios, activeId, setActiveId, view, setView, onSce
 export default function ScenariosTab({ scenarios, groups, onScenariosChange, onGroupsChange, data }) {
   const [activeId, setActiveId] = useState(scenarios[0].id);
   const [view,     setView]     = useState("edit");
-
   const active = scenarios.find(s=>s.id===activeId)||scenarios[0];
 
   return (
@@ -548,6 +575,209 @@ export default function ScenariosTab({ scenarios, groups, onScenariosChange, onG
           onChange={u=>onScenariosChange(scenarios.map(s=>s.id===u.id?u:s))}/>
       )}
       {view==="compare"&&<CompareView scenarios={scenarios} data={data} groups={groups}/>}
+      {view==="projection"&&<ScenarioProjection scenario={active} data={data}/>}
+    </div>
+  );
+}
+
+// ── Scenario projection ───────────────────────────────────────────────────────
+// Shows a day-by-day balance walkthrough based on scenario rows.
+// Fixed rows: user picks which day of month they typically fall.
+// Live/last rows: average day-of-month pulled from historical transactions.
+// Income: average day it has historically arrived.
+function ScenarioProjection({ scenario, data }) {
+  const incomeAmt = resolveIncome(scenario.income, data);
+  const complete  = completeMonths(data.months);
+
+  // Build typical day-of-month for each category from last 3 complete months
+  const catDayAvg = {};
+  complete.slice(-3).forEach(m => {
+    (m.transactions||[]).forEach(tx => {
+      if (!tx.category) return;
+      const day = parseInt(tx.date?.split("-")[2]||"0"); if (!day) return;
+      if (!catDayAvg[tx.category]) catDayAvg[tx.category] = [];
+      catDayAvg[tx.category].push(day);
+    });
+  });
+  const avgDay = cats => {
+    const days = (cats||[]).flatMap(c=>catDayAvg[c]||[]);
+    return days.length ? Math.round(days.reduce((a,b)=>a+b,0)/days.length) : null;
+  };
+  // Typical income day
+  const incomeDays = complete.slice(-3).flatMap(m=>
+    (m.transactions||[]).filter(t=>t.isIncome||t.amount>0).map(t=>parseInt(t.date?.split("-")[2]||"0")).filter(Boolean)
+  );
+  const typicalIncomeDay = incomeDays.length ? Math.round(incomeDays.reduce((a,b)=>a+b,0)/incomeDays.length) : 1;
+
+  // State: day overrides for fixed rows (day-of-month picker)
+  const [dayOverrides, setDayOverrides] = useState({});
+  const [startBal, setStartBal] = useState(
+    // Default to last known end balance
+    (data.months[data.months.length-1]?.endBalance ?? 0)
+  );
+  const [startDraft, setStartDraft] = useState(fmtR(data.months[data.months.length-1]?.endBalance??0));
+
+  // Build events: one per enabled row
+  const events = [];
+
+  // Income event
+  events.push({
+    day: typicalIncomeDay,
+    label: "Income",
+    amount: incomeAmt,
+    type: "income",
+    color: C.teal,
+  });
+
+  scenario.rows.filter(r=>r.enabled).forEach(row => {
+    const amt = resolveRow(row, incomeAmt, data);
+    if (amt <= 0) return;
+    let day;
+    if (row.type === "fixed" || row.type === "percent") {
+      day = dayOverrides[row.id] ?? 1;
+    } else if (row.type === "last") {
+      // Use the actual day from last complete month
+      const lastM = complete[complete.length-1];
+      const lastTx = (lastM?.transactions||[]).filter(t=>(row.liveCategories||[]).includes(t.category)&&t.amount<0);
+      const lastDay = lastTx.length ? Math.max(...lastTx.map(t=>parseInt(t.date?.split("-")[2]||"0"))) : null;
+      day = lastDay ?? avgDay(row.liveCategories) ?? 1;
+    } else {
+      // live — use average day
+      day = avgDay(row.liveCategories) ?? 1;
+    }
+    const group = data.categoryGroups ? null : null; // for color
+    events.push({
+      day,
+      label: row.name,
+      amount: -amt,
+      type: "expense",
+      color: C.red,
+      rowId: row.id,
+      rowType: row.type,
+      liveCategories: row.liveCategories,
+    });
+  });
+
+  // Sort events by day
+  events.sort((a,b) => a.day - b.day);
+
+  // Walk through days 1-31
+  const days = [];
+  let bal = startBal;
+  for (let d=1; d<=31; d++) {
+    const dayEvents = events.filter(e=>e.day===d);
+    const prev = bal;
+    dayEvents.forEach(e => bal += e.amount);
+    if (dayEvents.length > 0) {
+      days.push({ day:d, events:dayEvents, balBefore:prev, balAfter:bal });
+    }
+  }
+
+  const minBal = Math.min(startBal, ...days.map(d=>d.balAfter));
+  const maxBal = Math.max(startBal, ...days.map(d=>d.balAfter));
+  const balRange = maxBal - minBal || 1;
+
+  return (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:22}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{color:C.amber,fontSize:10,letterSpacing:2,marginBottom:4}}>MONTHLY PROJECTION</div>
+          <div style={{color:C.textDim,fontSize:12}}>Step through expected balance changes across a typical month</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{color:C.textDim,fontSize:11}}>Starting balance:</span>
+          <input type="number" value={startDraft}
+            onChange={e=>setStartDraft(e.target.value)}
+            onBlur={e=>setStartBal(pc(e.target.value))}
+            style={{width:110,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",color:C.amber,fontSize:12,fontFamily:FONT,outline:"none"}}/>
+          <span style={{color:C.amber,fontSize:12,fontWeight:700}}>{fmt(startBal)}</span>
+        </div>
+      </div>
+
+      {/* Day picker for fixed rows */}
+      {scenario.rows.filter(r=>r.enabled&&(r.type==="fixed"||r.type==="percent")).length>0&&(
+        <div style={{marginBottom:16,padding:"12px 14px",background:C.elevated,borderRadius:8,border:`1px solid ${C.border}`}}>
+          <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:10}}>SET DAY OF MONTH FOR FIXED ITEMS</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {scenario.rows.filter(r=>r.enabled&&(r.type==="fixed"||r.type==="percent")).map(row=>(
+              <div key={row.id} style={{display:"flex",alignItems:"center",gap:8,background:C.bg,borderRadius:6,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                <span style={{color:C.text,fontSize:11}}>{row.name}</span>
+                <span style={{color:C.textDim,fontSize:10}}>day</span>
+                <input type="number" min={1} max={31} value={dayOverrides[row.id]??1}
+                  onChange={e=>setDayOverrides(d=>({...d,[row.id]:Math.max(1,Math.min(31,parseInt(e.target.value)||1))}))}
+                  style={{width:48,background:C.elevated,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 6px",color:C.amber,fontSize:11,fontFamily:FONT,outline:"none",textAlign:"center"}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Balance walk */}
+      <div style={{display:"flex",flexDirection:"column",gap:0}}>
+        {/* Starting balance row */}
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:`1px solid ${C.border}44`}}>
+          <div style={{width:32,color:C.textDim,fontSize:10,textAlign:"right",flexShrink:0}}>—</div>
+          <div style={{flex:1,color:C.textDim,fontSize:11,fontStyle:"italic"}}>Starting balance</div>
+          <div style={{color:C.text,fontSize:13,fontWeight:700,minWidth:90,textAlign:"right"}}>{fmt(startBal)}</div>
+        </div>
+
+        {days.map(({day,events:evs,balBefore,balAfter},i)=>(
+          <div key={day} style={{borderBottom:`1px solid ${C.border}44`}}>
+            {evs.map((ev,ei)=>{
+              const isLast = ei===evs.length-1;
+              const runBal = evs.slice(0,ei+1).reduce((b,e)=>b+e.amount,balBefore);
+              return (
+                <div key={ei} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",
+                  background:ei===0&&i%2===0?`${C.elevated}66`:"transparent"}}>
+                  <div style={{width:32,color:C.textDim,fontSize:10,textAlign:"right",flexShrink:0}}>
+                    {ei===0?`${day}`:""}</div>
+                  <div style={{flex:1}}>
+                    <div style={{color:ev.type==="income"?C.teal:C.text,fontSize:12}}>{ev.label}</div>
+                    {ev.type!=="income"&&ev.liveCategories?.length>0&&(
+                      <div style={{color:C.muted,fontSize:9,marginTop:1}}>{ev.liveCategories.join(", ")}</div>
+                    )}
+                    {(ev.rowType==="live"||ev.rowType==="last")&&(
+                      <div style={{color:C.muted,fontSize:9}}>
+                        {ev.rowType==="live"?"avg day":"last occurrence"}: day {ev.day}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{color:ev.amount>=0?C.teal:C.red,fontSize:12,fontWeight:700,minWidth:72,textAlign:"right"}}>
+                    {ev.amount>=0?"+":""}{fmt(ev.amount)}
+                  </div>
+                  {isLast&&(
+                    <div style={{minWidth:90,textAlign:"right"}}>
+                      <div style={{color:runBal>=startBal?C.teal:runBal<0?C.red:C.text,fontSize:13,fontWeight:700}}>{fmt(runBal)}</div>
+                      {/* Mini progress bar */}
+                      <div style={{height:2,background:C.border,borderRadius:1,marginTop:3,width:90}}>
+                        <div style={{
+                          height:"100%",borderRadius:1,
+                          background:runBal<0?C.red:runBal>=startBal?C.teal:C.amber,
+                          width:`${Math.max(0,Math.min(100,((runBal-minBal)/balRange)*100))}%`,
+                          transition:"width 0.3s",
+                        }}/>
+                      </div>
+                    </div>
+                  )}
+                  {!isLast&&<div style={{minWidth:90}}/>}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {/* Final balance */}
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",marginTop:4}}>
+          <div style={{width:32,flexShrink:0}}/>
+          <div style={{flex:1,color:C.textDim,fontSize:11,fontWeight:700}}>End of month</div>
+          <div style={{color:C.textDim,fontSize:11,minWidth:72,textAlign:"right"}}>
+            {bal>=startBal?"+":""}{fmt(bal-startBal)}
+          </div>
+          <div style={{minWidth:90,textAlign:"right"}}>
+            <div style={{color:bal>=startBal?C.teal:bal<0?C.red:C.amber,fontSize:16,fontWeight:700}}>{fmt(bal)}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

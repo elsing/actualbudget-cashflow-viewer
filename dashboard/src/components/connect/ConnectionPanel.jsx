@@ -4,24 +4,27 @@ import { sGet, sSet } from "../../helpers.js";
 
 export default function ConnectionPanel({ onConnect }) {
   const saved = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-  // Must be declared before useState calls
-  const defaultApiUrl = saved.apiUrl || `${window.location.protocol}//${window.location.hostname}:5007`;
 
-  const [apiUrl,   setApiUrl]   = useState(defaultApiUrl);
+  // API URL is always derived from the current page's hostname — no user input needed.
+  // In dev: http://localhost:5007 (Vite proxies /api to this)
+  // In prod: http://your-server:5007 (same host as the dashboard)
+  const apiUrl = `${window.location.protocol}//${window.location.hostname}/api`;
+
   const [apiKey,   setApiKey]   = useState(saved.apiKey||"");
   const [budgets,  setBudgets]  = useState([]);
   const [budgetId, setBudgetId] = useState(saved.budgetId||"");
   const [accounts, setAccounts] = useState([]);
   const [selAccIds,setSelAccIds]= useState(null);
-  const [typeOverrides, setTypeOverrides] = useState(saved.typeOverrides||{});
+  const [typeOverrides,setTypeOverrides] = useState(saved.typeOverrides||{});
   const [step, setStep] = useState("creds");
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState("");
+
+  // Load typeOverrides from DB on mount (syncs across devices)
   useEffect(() => {
     sGet(SK.conn).then(conn => {
       if (conn?.typeOverrides && Object.keys(conn.typeOverrides).length > 0) {
         setTypeOverrides(conn.typeOverrides);
-        // Also update localStorage so next visit has them
         const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
         localStorage.setItem("cf-connection", JSON.stringify({...cur, typeOverrides:conn.typeOverrides}));
       }
@@ -37,10 +40,8 @@ export default function ConnectionPanel({ onConnect }) {
 
   const saveTypeOverrides = (ovs) => {
     setTypeOverrides(ovs);
-    // Write to localStorage immediately
     const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
     localStorage.setItem("cf-connection", JSON.stringify({...cur, typeOverrides:ovs}));
-    // Write to DB (async, fire and forget)
     sSet(SK.conn, { typeOverrides: ovs });
   };
 
@@ -126,24 +127,30 @@ export default function ConnectionPanel({ onConnect }) {
       <div style={{width:520,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:36}}>
         <div style={{color:C.amber,fontSize:11,letterSpacing:3,marginBottom:6}}>◈ ACTUAL BUDGET</div>
         <div style={{color:C.text,fontSize:22,fontWeight:700,marginBottom:4}}>Cash Flow Dashboard</div>
+
         <div style={{display:"flex",gap:16,marginBottom:24,marginTop:8}}>
           {[{id:"creds",l:"1. Connect"},{id:"budget",l:"2. Budget"},{id:"accounts",l:"3. Accounts"}].map(s=>(
             <div key={s.id} style={{fontSize:10,color:step===s.id?C.amber:C.muted,fontFamily:FONT,letterSpacing:1,borderBottom:step===s.id?`1px solid ${C.amber}`:"none",paddingBottom:2}}>{s.l}</div>
           ))}
         </div>
 
+        {/* Step 1 — API key only, URL auto-detected */}
         {step==="creds"&&<>
-          <div style={{marginBottom:14}}>
+          <div style={{marginBottom:6}}>
             <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:5}}>API URL</div>
-            <input value={apiUrl} onChange={e=>setApiUrl(e.target.value)} placeholder="http://localhost:5007" style={f}/>
+            <div style={{background:C.elevated,border:`1px solid ${C.border}`,borderRadius:7,padding:"10px 14px",color:C.textDim,fontSize:12,fontFamily:FONT}}>
+              {apiUrl}
+            </div>
+            <div style={{color:C.muted,fontSize:9,marginTop:4}}>Auto-detected from this page's hostname</div>
           </div>
-          <div style={{marginBottom:18}}>
+          <div style={{marginBottom:18,marginTop:14}}>
             <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:5}}>API KEY</div>
-            <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} onKeyDown={e=>e.key==="Enter"&&fetchBudgets()} placeholder="your-api-key" style={f}/>
+            <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&fetchBudgets()} placeholder="your-api-key" style={f}/>
           </div>
-          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:"#1a0a0a",borderRadius:6}}>{err}</div>}
-          <button onClick={fetchBudgets} disabled={!apiUrl||!apiKey||busy}
-            style={{width:"100%",background:C.amber,color:"#060e1a",border:"none",borderRadius:7,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:FONT,marginBottom:10}}>
+          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:`${C.red}11`,borderRadius:6}}>{err}</div>}
+          <button onClick={fetchBudgets} disabled={!apiKey||busy}
+            style={{width:"100%",background:apiKey?C.amber:"transparent",color:apiKey?"#060e1a":C.muted,border:`1px solid ${apiKey?C.amber:C.border}`,borderRadius:7,padding:"12px 0",fontSize:13,fontWeight:700,cursor:apiKey?"pointer":"default",fontFamily:FONT,marginBottom:10}}>
             {busy?"CONNECTING…":"CONNECT →"}
           </button>
           <button onClick={()=>onConnect({demo:true})}
@@ -152,6 +159,7 @@ export default function ConnectionPanel({ onConnect }) {
           </button>
         </>}
 
+        {/* Step 2 — budget */}
         {step==="budget"&&<>
           <div style={{color:C.textDim,fontSize:11,marginBottom:16}}>Select your budget:</div>
           <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
@@ -166,15 +174,16 @@ export default function ConnectionPanel({ onConnect }) {
               );
             })}
           </div>
-          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:"#1a0a0a",borderRadius:6}}>{err}</div>}
+          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:`${C.red}11`,borderRadius:6}}>{err}</div>}
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>setStep("creds")} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
-            <button onClick={fetchAccounts} disabled={!budgetId||busy} style={{flex:2,background:C.amber,color:"#060e1a",border:"none",borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:FONT}}>
+            <button onClick={fetchAccounts} disabled={!budgetId||busy} style={{flex:2,background:budgetId?C.amber:"transparent",color:budgetId?"#060e1a":C.muted,border:`1px solid ${budgetId?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,cursor:budgetId?"pointer":"default",fontFamily:FONT}}>
               {busy?"LOADING…":"SELECT ACCOUNTS →"}
             </button>
           </div>
         </>}
 
+        {/* Step 3 — accounts */}
         {step==="accounts"&&<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div style={{color:C.textDim,fontSize:11}}>{selCount} account{selCount!==1?"s":""} selected</div>
@@ -184,7 +193,7 @@ export default function ConnectionPanel({ onConnect }) {
               <button onClick={()=>setSelAccIds([])} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 10px",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>none</button>
             </div>
           </div>
-          <div style={{color:C.textDim,fontSize:9,letterSpacing:1,marginBottom:10}}>Types are saved and synced. Double-check credit cards are marked red.</div>
+          <div style={{color:C.textDim,fontSize:9,marginBottom:10}}>Account types are synced. Verify credit cards show red.</div>
           <div style={{maxHeight:360,overflowY:"auto",marginBottom:16}}>
             <AccGroup label="ON BUDGET"  items={onBudget}  color={C.teal}/>
             <AccGroup label="OFF BUDGET" items={offBudget} color={C.textDim}/>

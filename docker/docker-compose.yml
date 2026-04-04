@@ -1,4 +1,5 @@
 services:
+  # Cash Flow Dashboard — Next.js, handles its own SQLite persistence
   cashflow:
     image: cashflow-dashboard:latest
     ports:
@@ -27,8 +28,6 @@ services:
   #     ACTUAL_SERVER_PASSWORD: "${ACTUAL_SERVER_PASSWORD}"
   #     API_KEY:                "${ACTUAL_API_KEY}"
   #   restart: unless-stopped
-
-  # Cash Flow Dashboard — Next.js, handles its own SQLite persistence
 
 volumes:
   cashflow-data:

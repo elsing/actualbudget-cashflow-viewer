@@ -50,7 +50,7 @@ docker compose up -d
 # Dashboard at http://your-server:3000
 ```
 
-The `docker-compose.yml` includes `actual-server`, `actual-http-api`, and the dashboard. Set your values in a `.env` file alongside `docker-compose.yml`:
+The `docker-compose.yml` includes `actual-http-api` (but it is commented out by default) and the dashboard. Set your values in a `.env` file alongside `docker-compose.yml`:
 
 ```env
 ACTUAL_SERVER_URL=http://actual-server:5006

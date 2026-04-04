@@ -7,14 +7,15 @@ on:
       - main
     # Only run on changes to the relevant code
     paths:
-      - 'dashboard/src/**'
-      - 'dashboard/public/**'
-      - 'api/server.js'
+      - 'app/**'
+      - 'components/**'
+      - 'docker/**'
+      - 'content/**'
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: "Deploy repo"
+  build-deploy:
+    name: "Build and Deploy Cashflow Dashboard"
     runs-on: [docker, self-hosted]
 
     steps:
@@ -22,13 +23,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Build the API server and make a Docker image of it
-      - name: Build Docker image
-        run: docker build -t cashflow-api:latest -f api/Dockerfile .
-
       # Build the dashboard and make a Docker image of it
       - name: Build Docker image
-        run: docker build -t cashflow-dashboard:latest -f dashboard/Dockerfile .
+        run: docker build -t cashflow-dashboard:latest -f docker/Dockerfile .
 
       # If already up, take it down
       - name: Stop and remove existing container

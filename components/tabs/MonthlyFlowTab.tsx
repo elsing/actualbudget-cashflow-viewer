@@ -1,4 +1,5 @@
 "use client";
+import type { UiState, AppData, AppState, Scenario, Month } from "@/types";
 import { useState, useMemo } from "react";
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { C, FONT, CAT_PALETTE, TYPE_COLOR } from "@/lib/constants";
@@ -8,7 +9,19 @@ import { completeMonths } from "@/lib/helpers";
 import { ChartTip } from "@/components/ui";
 
 // ── Hover-expanding compact month card ────────────────────────────────────────
-function HoverCard({ m, bc, bg, isSelected, onSelect, onCycle, onRange, inRange, isAnchor, marker }) {
+interface HoverCardProps {
+  m: Month;
+  bc: string;
+  bg: string;
+  isSelected: boolean;
+  onSelect: (month: string) => void;
+  onCycle: (month: string) => void;
+  onRange: (month: string) => void;
+  inRange: boolean;
+  isAnchor: boolean;
+  marker?: "good" | "bad";
+}
+function HoverCard({ m, bc, bg, isSelected, onSelect, onCycle, onRange, inRange, isAnchor, marker }: HoverCardProps) {
   const [hov, setHov] = useState(false);
   return (
     <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
@@ -36,24 +49,34 @@ function HoverCard({ m, bc, bg, isSelected, onSelect, onCycle, onRange, inRange,
 }
 
 // ── Main tab ──────────────────────────────────────────────────────────────────
-export default function MonthlyFlowTab({ data, scenarios, markers, reconciliations, onMarkersChange, onReconciliationsChange, uiState={}, setUi=()=>{} }) {
+interface MonthlyFlowTabProps {
+  data: AppData;
+  scenarios: Scenario[];
+  markers: AppState["markers"];
+  reconciliations: AppState["reconciliations"];
+  onMarkersChange: (m: AppState["markers"]) => void;
+  onReconciliationsChange: (r: AppState["reconciliations"]) => void;
+  uiState?: Partial<UiState>;
+  setUi?: (patch: Partial<UiState>) => void;
+}
+export default function MonthlyFlowTab({ data, scenarios, markers, reconciliations, onMarkersChange, onReconciliationsChange, uiState={}, setUi=(_p)=>{} }: MonthlyFlowTabProps) {
   const rawAccountObjects = data.accountObjects || [];
   const allAccountNames   = data.accounts || [];
 
-  const [selAccounts, setSelAccounts] = useState(null); // null = all
+  const [selAccounts, setSelAccounts] = useState<string[]|null>(null);
   const [selMonth,    setSelMonth]    = useState(data.months[data.months.length-1]?.month||"");
-  const [rangeStart,  setRangeStart]  = useState(null);
-  const [rangeEnd,    setRangeEnd]    = useState(null);
+  const [rangeStart,  setRangeStart]  = useState<string|null>(null);
+  const [rangeEnd,    setRangeEnd]    = useState<string|null>(null);
   const [balRange,    setBalRange]    = useState(6);
-  const [projScenId,  setProjScenId]  = useState(scenarios?.[0]?.id||null);
+  const [projScenId,  setProjScenId]  = useState<string|null>(scenarios?.[0]?.id||null);
   const [txOpen,      setTxOpen]      = useState(false);
   const showProj    = uiState.flowShowProj ?? true;
-  const setShowProj = v => setUi({flowShowProj: typeof v==="function" ? v(showProj) : v});
+  const setShowProj = (v: boolean | ((p: boolean) => boolean)) => setUi({flowShowProj: typeof v==="function" ? v(showProj) : v});
 
   const activeAccountNames = selAccounts ?? allAccountNames;
   const activeAccountObjs  = rawAccountObjects.filter(a => activeAccountNames.includes(a.name));
 
-  const filterTx = txs => (txs||[]).filter(t =>
+  const filterTx = (txs: any[]) => (txs||[]).filter(t =>
     !allAccountNames.length || activeAccountNames.length===0 ||
     activeAccountNames.includes(t.account) || !t.account
   );
@@ -124,7 +147,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     });
   }, [allMonths, activeAccountNames]);
 
-  const handleRange = month => {
+  const handleRange = (month: string) => {
     if (!rangeStart) { setRangeStart(month); setRangeEnd(null); }
     else if (rangeStart===month&&!rangeEnd) { setRangeStart(null); }
     else if (!rangeEnd) {
@@ -181,7 +204,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     if (!selMDataRaw) return [];
     const [y,mo] = selMonth.split("-");
     const dIM = new Date(+y,+mo,0).getDate();
-    const txsByDay = {};
+    const txsByDay: Record<string, typeof selMDataRaw.transactions> = {};
     // Filter by account AND exclude transfers — transfers cancel across accounts
     // but mid-month they cause large swings that obscure the real running balance
     filterTx(selMDataRaw.transactions)
@@ -219,7 +242,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     if (!projScen||!showProj||!selMData||!dailyData.length) return [];
     const pInc = resolveIncome(projScen.income, data);
     // Historical day-of-month per category
-    const catDayMap = {};
+    const catDayMap: Record<string, number[]> = {};
     completeMonths(data.months).slice(-3).forEach(m => {
       (m.transactions||[]).forEach(tx => {
         if (tx.amount>=0) return;
@@ -236,7 +259,8 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
       : dailyData.reduce((last,d)=>d.txs?.length?parseInt(d.date.split("-")[2]):last, 0) || dIM;
     if (!isCurrentMonth && lastTxDay >= dIM) return []; // full month, nothing to project
 
-    const events = [];
+    interface ProjEvent { day: number; label: string; amount: number; type: string; }
+    const events: ProjEvent[] = [];
     projScen.rows.filter(r=>r.enabled).forEach(row => {
       const amt = resolveRow(row, pInc, data); if (amt<=0) return;
       let typDay = null;
@@ -248,7 +272,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
       if (typDay>lastTxDay && typDay<=dIM)
         events.push({day:typDay, label:row.name, amount:-amt, type:"expense"});
     });
-    const incomeIn = selMDataRaw.transactions.some(t=>t.isIncome||t.amount>0);
+    const incomeIn = (selMDataRaw?.transactions??[]).some((t: { isIncome?: boolean; amount: number }) => t.isIncome || t.amount > 0);
     if (!incomeIn) {
       const iDays = completeMonths(data.months).slice(-3).flatMap(m=>
         (m.transactions||[]).filter(t=>t.isIncome||t.amount>0).map(t=>parseInt(t.date?.split("-")[2]||"0")).filter(Boolean)
@@ -270,7 +294,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
 
   const dailyChartData = useMemo(() => {
     if (!dailyData.length) return [];
-    const projMap = Object.fromEntries(steppedProj.map(p=>[p.date,p]));
+    const projMap: Record<string, typeof steppedProj[0]> = Object.fromEntries(steppedProj.map(p=>[p.date,p]));
     return dailyData.map(d=>({
       ...d,
       projBalance: d.projBalance ?? projMap[d.date]?.projBalance ?? null,
@@ -288,12 +312,16 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
   const goodAvg = goodAvgEnd; // kept for compat
   const badAvg  = badAvgEnd;
 
-  const cycle = month => {
+  const cycle = (month: string) => {
     const cur = markers[month];
-    onMarkersChange({...markers,[month]:cur==="good"?"bad":cur==="bad"?null:"good"});
+    const next = {...markers};
+    if (cur === "good") next[month] = "bad";
+    else if (cur === "bad") delete next[month];
+    else next[month] = "good";
+    onMarkersChange(next as AppState["markers"]);
   };
 
-  const yFmt = v => `£${Math.abs(v/100).toLocaleString("en-GB",{maximumFractionDigits:0})}`;
+  const yFmt = (v: number) => `£${Math.abs(v/100).toLocaleString("en-GB",{maximumFractionDigits:0})}`;
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:20}}>
@@ -310,7 +338,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
           {allAccountNames.map(a=>{
             const active = (selAccounts??allAccountNames).includes(a);
             const obj    = rawAccountObjects.find(o=>o.name===a);
-            const col    = TYPE_COLOR[obj?.type]||C.textDim;
+            const col    = TYPE_COLOR[obj?.type ?? "other"] || C.textDim;
             return (
               <button key={a} onClick={()=>{
                 const cur  = selAccounts??allAccountNames;
@@ -399,9 +427,9 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
           </div>}
           {goodAvg!==null&&badAvg!==null&&<div style={{flex:"1 1 180px",background:C.surface,border:`2px solid ${C.amber}`,borderRadius:12,padding:"20px 24px"}}>
             <div style={{color:C.amber,fontSize:11,letterSpacing:2,marginBottom:10}}>GAP</div>
-            <div style={{color:C.amber,fontSize:28,fontWeight:700}}>{fmt(goodAvgEnd-badAvgEnd)}</div>
+            <div style={{color:C.amber,fontSize:28,fontWeight:700}}>{fmt((goodAvgEnd??0)-(badAvgEnd??0))}</div>
             <div style={{color:C.textDim,fontSize:12,marginTop:4}}>end balance gap</div>
-            <div style={{color:C.textDim,fontSize:11,marginTop:6}}>start gap <span style={{color:C.amber}}>{fmt(goodAvgStart-badAvgStart)}</span></div>
+            <div style={{color:C.textDim,fontSize:11,marginTop:6}}>start gap <span style={{color:C.amber}}>{fmt((goodAvgStart??0)-(badAvgStart??0))}</span></div>
           </div>}
         </div>
       )}
@@ -457,7 +485,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
               <div style={{color:C.amber,fontSize:10,letterSpacing:2,marginBottom:4}}>{fmtM(selMonth).toUpperCase()} — DAY BY DAY</div>
               <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
                 <span style={{color:C.blue,fontSize:12}}>start {fmt(selMData.startBalance)}</span>
-                <span style={{color:selMData.endBalance>=selMDataRaw?.startBalance?C.teal:C.red,fontSize:13,fontWeight:700}}>end {fmt(selMData.endBalance)}</span>
+                <span style={{color:selMData.endBalance>=(selMDataRaw?.startBalance??0)?C.teal:C.red,fontSize:13,fontWeight:700}}>end {fmt(selMData.endBalance)}</span>
                 <span style={{color:selMData.endBalance>=(selMDataRaw?.startBalance??0)?C.green:C.red,fontSize:12}}>net {fmt(selMData.endBalance-(selMDataRaw?.startBalance??0))}</span>
                 {isCurrentMonth&&<span style={{color:C.textDim,fontSize:11}}>· today {fmtD(today)}</span>}
               </div>
@@ -481,8 +509,8 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
                   <div style={{background:"#0a182b",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",maxWidth:240}}>
                     <div style={{color:C.textDim,fontSize:11,marginBottom:5}}>{fmtD(label)}{!p?.isPast?" · projected":""}</div>
                     <div style={{color:C.teal,fontSize:13,fontWeight:700,marginBottom:4}}>{fmt(p?.balance??p?.projBalance)}</div>
-                    {(p?.txs||[]).map(tx=><div key={tx.id} style={{fontSize:11,color:tx.amount>=0?C.teal:C.text,marginBottom:1}}>{tx.payee} · {fmt(tx.amount)}</div>)}
-                    {(p?.projEvents||[]).map((e,i)=><div key={i} style={{fontSize:11,color:e.type==="income"?C.green:C.red,marginBottom:1,fontStyle:"italic"}}>~{e.label} · {fmt(e.amount)}</div>)}
+                    {(p?.txs||[]).map((tx: {id:string;payee:string;amount:number})=><div key={tx.id} style={{fontSize:11,color:tx.amount>=0?C.teal:C.text,marginBottom:1}}>{tx.payee} · {fmt(tx.amount)}</div>)}
+                    {(p?.projEvents||[]).map((e: {label:string;amount:number;type:string},i: number)=><div key={i} style={{fontSize:11,color:e.type==="income"?C.green:C.red,marginBottom:1,fontStyle:"italic"}}>~{e.label} · {fmt(e.amount)}</div>)}
                     {!(p?.txs?.length)&&!(p?.projEvents?.length)&&<div style={{color:C.muted,fontSize:11}}>No transactions</div>}
                   </div>
                 );
@@ -500,7 +528,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
             </button>
             {txOpen&&(
               <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:280,overflowY:"auto"}}>
-                {filterTx(selMData.transactions).sort((a,b)=>a.date.localeCompare(b.date)).map(tx=>(
+                {filterTx(selMData.transactions).sort((a: {date:string}, b: {date:string})=>a.date.localeCompare(b.date)).map(tx=>(
                   <div key={tx.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",background:C.elevated,borderRadius:6,borderLeft:`3px solid ${tx.amount>=0?C.teal:C.muted}`}}>
                     <div style={{color:C.textDim,fontSize:10,minWidth:28}}>{tx.date.split("-")[2]}</div>
                     <div style={{flex:1,color:C.text,fontSize:12}}>{tx.payee||"—"}</div>

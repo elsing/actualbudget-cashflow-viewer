@@ -2,8 +2,16 @@
 import { useState } from "react";
 import { C, FONT, PRESET_COLORS } from "@/lib/constants";
 import { fmtM, fmtD, fmt } from "@/lib/helpers";
+import type { Month } from "@/types";
 
-export function Chip({ label, color, active, onClick, small }) {
+interface ChipProps {
+  label: string;
+  color: string;
+  active: boolean;
+  onClick: () => void;
+  small?: boolean;
+}
+export function Chip({ label, color, active, onClick, small }: ChipProps) {
   return (
     <button onClick={onClick} style={{
       display:"flex", alignItems:"center", gap:5,
@@ -21,7 +29,11 @@ export function Chip({ label, color, active, onClick, small }) {
   );
 }
 
-export function ColorSwatch({ value, onChange }) {
+interface ColorSwatchProps {
+  value: string;
+  onChange: (color: string) => void;
+}
+export function ColorSwatch({ value, onChange }: ColorSwatchProps) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{position:"relative",flexShrink:0}}>
@@ -48,7 +60,12 @@ export function ColorSwatch({ value, onChange }) {
   );
 }
 
-export function ChartTip({ active, payload, label }) {
+interface ChartTipProps {
+  active?: boolean;
+  payload?: { name: string; value: number; color?: string; fill?: string }[];
+  label?: string | number;
+}
+export function ChartTip({ active, payload, label }: ChartTipProps) {
   if (!active || !payload?.length) return null;
   const iso = String(label||"");
   const lbl = iso.length===10 ? fmtD(iso) : fmtM(iso);
@@ -64,8 +81,13 @@ export function ChartTip({ active, payload, label }) {
   );
 }
 
-export function RangeButtons({ value, onChange, options, data }) {
-  // options = array of numbers e.g. [3,6,12,24], filtered by data.months.length
+interface RangeButtonsProps {
+  value: number;
+  onChange: (v: number) => void;
+  options: number[];
+  data: { months: Month[] };
+}
+export function RangeButtons({ value, onChange, options, data }: RangeButtonsProps) {
   const available = options.filter(r => r <= (data?.months?.length ?? 99));
   return (
     <div style={{display:"flex",gap:6}}>

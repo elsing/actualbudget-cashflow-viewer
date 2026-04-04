@@ -185,17 +185,17 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
       <div data-content style={{padding:"24px 28px"}}>
         {tab==="flow"      && <MonthlyFlowTab  data={data} scenarios={scenarios} markers={markers}
           reconciliations={reconciliations}
-          onMarkersChange={m=>update({markers:m})}
-          onReconciliationsChange={r=>update({reconciliations:r})}
+          onMarkersChange={(m: AppState['markers'])=>update({markers:m})}
+          onReconciliationsChange={(r: AppState['reconciliations'])=>update({reconciliations:r})}
           uiState={uiState} setUi={setUi}/>}
         {tab==="scenarios" && <ScenariosTab    scenarios={scenarios} groups={groups} data={data}
-          onScenariosChange={s=>update({scenarios:s})}
-          onGroupsChange={g=>update({groups:g})}
+          onScenariosChange={(s: AppState['scenarios'])=>update({scenarios:s})}
+          onGroupsChange={(g: AppState['groups'])=>update({groups:g})}
           uiState={uiState} setUi={setUi}/>}
         {tab==="overview"  && <OverviewTab     data={data} uiState={uiState} setUi={setUi}/>}
         {tab==="cats"      && <CategoriesTab   data={data} uiState={uiState} setUi={setUi}/>}
         {tab==="cal"       && <CalibrationTab  data={data} reconciliations={reconciliations}
-          onReconciliationsChange={r=>update({reconciliations:r})}/>}
+          onReconciliationsChange={(r: AppState['reconciliations'])=>update({reconciliations:r})}/>}
         {tab==="ai"        && <AITab           data={data} markers={markers} uiState={uiState} setUi={setUi}/>}
       </div>
     </div>

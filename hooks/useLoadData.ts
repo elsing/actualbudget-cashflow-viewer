@@ -117,6 +117,9 @@ export function useLoadData(config: Config | null) {
       // API key lives in env vars, never touches the browser.
       const syncId  = config.budgetId!;
       const typeOvs = config.typeOverrides || {};
+      // Include dashboard password header if one was set at sign-in
+      const pw = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("cf-password") ?? "" : "";
+      const authHeaders: Record<string, string> = pw ? { "x-dashboard-password": pw } : {};
       const now     = new Date();
       const start   = new Date(); start.setMonth(start.getMonth()-23); start.setDate(1);
       const startStr = start.toISOString().slice(0,10);
@@ -126,7 +129,7 @@ export function useLoadData(config: Config | null) {
       appendLog("Loading accounts…","pending");
       let openAccounts: {id:string;name:string;type:string;offbudget?:boolean;closed?:boolean}[] = [];
       try {
-        const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts`);
+        const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts`, { headers: authHeaders });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         const all = j.data??j??[];
@@ -147,8 +150,8 @@ export function useLoadData(config: Config | null) {
       let categoryGroups: any[] = [];
       try {
         const [catR, grpR] = await Promise.all([
-          fetch(`/api/actual/v1/budgets/${syncId}/categories`),
-          fetch(`/api/actual/v1/budgets/${syncId}/categorygroups`),
+          fetch(`/api/actual/v1/budgets/${syncId}/categories`, { headers: authHeaders }),
+          fetch(`/api/actual/v1/budgets/${syncId}/categorygroups`, { headers: authHeaders }),
         ]);
         if (catR.ok) {
           const j = await catR.json();
@@ -173,7 +176,7 @@ export function useLoadData(config: Config | null) {
         appendLog(`  ${acct.name}…`,"pending");
         txsByAccount[acct.id] = {};
         try {
-          const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts/${acct.id}/transactions?since_date=${startStr}&until_date=${endStr}`);
+          const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts/${acct.id}/transactions?since_date=${startStr}&until_date=${endStr}`, { headers: authHeaders });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const j = await r.json();
           const txs: any[] = j.data??j??[];
@@ -226,7 +229,7 @@ export function useLoadData(config: Config | null) {
       const anchorStr = anchor.toISOString().slice(0,10);
       await Promise.all(openAccounts.map(async acct => {
         try {
-          const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts/${acct.id}/balance?cutoff=${anchorStr}`);
+          const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts/${acct.id}/balance?cutoff=${anchorStr}`, { headers: authHeaders });
           if (r.ok) { const j=await r.json(); startBalances[acct.id]=j.data?.balance??j.balance??0; }
           else startBalances[acct.id] = 0;
         } catch { startBalances[acct.id] = 0; }

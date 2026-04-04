@@ -6,57 +6,67 @@ import { sGet, sSet } from "@/lib/helpers";
 interface Props { onConnect: (cfg: any) => void; }
 
 export default function ConnectionPanel({ onConnect }: Props) {
-  const saved = typeof window !== "undefined"
-    ? JSON.parse(localStorage.getItem("cf-connection")||"{}") : {};
-
-  const [apiKey,        setApiKey]        = useState<string>(saved.apiKey||"");
+  const [saved, setSaved] = useState<Record<string,any>>({});
+  const [password,      setPassword]      = useState<string>("");
   const [budgets,       setBudgets]       = useState<any[]>([]);
-  const [budgetId,      setBudgetId]      = useState<string>(saved.budgetId||"");
+  const [budgetId,      setBudgetId]      = useState<string>("");
   const [accounts,      setAccounts]      = useState<any[]>([]);
   const [selAccIds,     setSelAccIds]     = useState<string[]|null>(null);
-  const [typeOverrides, setTypeOverrides] = useState<Record<string,string>>(saved.typeOverrides||{});
-  const [step,  setStep]  = useState<"creds"|"budget"|"accounts">("creds");
+  const [typeOverrides, setTypeOverrides] = useState<Record<string,string>>({});
+  const [step,  setStep]  = useState<"password"|"budget"|"accounts">("password");
   const [busy,  setBusy]  = useState(false);
   const [err,   setErr]   = useState("");
 
-  // Load typeOverrides from DB on mount
+  // Load saved config and type overrides on mount (client-only)
   useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+      setSaved(s);
+      if (s.budgetId)       setBudgetId(s.budgetId);
+      if (s.typeOverrides)  setTypeOverrides(s.typeOverrides);
+    } catch {}
+
+    // Load type overrides from DB (synced across devices)
     sGet(SK.conn).then((conn: any) => {
       if (conn?.typeOverrides && Object.keys(conn.typeOverrides).length > 0) {
         setTypeOverrides(conn.typeOverrides);
-        const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-        localStorage.setItem("cf-connection", JSON.stringify({...cur,typeOverrides:conn.typeOverrides}));
+        try {
+          const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+          localStorage.setItem("cf-connection", JSON.stringify({...cur, typeOverrides:conn.typeOverrides}));
+        } catch {}
       }
     });
   }, []);
 
-  const f: React.CSSProperties = {
-    width:"100%", boxSizing:"border-box",
-    background:C.bg, border:`1px solid ${C.border}`,
-    borderRadius:7, padding:"10px 14px",
-    color:C.text, fontSize:13, fontFamily:FONT, outline:"none",
-  };
-
   const saveTypeOverrides = (ovs: Record<string,string>) => {
     setTypeOverrides(ovs);
-    const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-    localStorage.setItem("cf-connection", JSON.stringify({...cur,typeOverrides:ovs}));
+    try {
+      const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+      localStorage.setItem("cf-connection", JSON.stringify({...cur, typeOverrides:ovs}));
+    } catch {}
     sSet(SK.conn, { typeOverrides: ovs });
   };
 
-  const fetchBudgets = async () => {
+  // Step 1: check password, then fetch budgets
+  const checkPassword = async () => {
     setBusy(true); setErr("");
     try {
-      // Budget list goes through our server-side proxy — no API key in browser
-      const r = await fetch("/api/actual/v1/budgets");
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      // Verify password against the server, then fetch budgets in same call
+      const r = await fetch("/api/actual/v1/budgets", {
+        headers: { "x-dashboard-password": password },
+      });
+      if (r.status === 401) throw new Error("Incorrect password.");
+      if (!r.ok) throw new Error(`Could not connect (HTTP ${r.status}). Check server is running.`);
       const d = await r.json();
+      if (d.error) throw new Error(d.error);
       const all = d.data??d??[];
       const seen = new Set<string>();
       const unique = all.filter((b:any) => { if(seen.has(b.name))return false; seen.add(b.name); return true; });
       setBudgets(unique);
+      // Save password in session for subsequent API calls
+      sessionStorage.setItem("cf-password", password);
       setStep("budget");
-    } catch(e:any) { setErr(`Could not connect: ${e.message}`); }
+    } catch(e:any) { setErr(e.message); }
     setBusy(false);
   };
 
@@ -70,19 +80,20 @@ export default function ConnectionPanel({ onConnect }: Props) {
       const seen = new Set<string>();
       const unique = all.filter((a:any)=>{ if(!a.id||seen.has(a.id))return false; seen.add(a.id); return true; });
       setAccounts(unique);
+      // Restore saved account selection for this budget
       const savedIds = saved.budgetId===budgetId ? saved.accountIds : null;
       setSelAccIds(savedIds || unique.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id));
       setStep("accounts");
-    } catch(e:any) { setErr(`Could not fetch accounts: ${e.message}`); }
+    } catch(e:any) { setErr(e.message); }
     setBusy(false);
   };
 
   const toggleAcc = (id: string) =>
-    setSelAccIds(p => p?.includes(id)?p.filter(x=>x!==id):[...(p||[]),id]);
+    setSelAccIds(p => p?.includes(id) ? p.filter(x=>x!==id) : [...(p||[]), id]);
 
   const connect = () => {
-    const cfg = { budgetId, accountIds:selAccIds||[], typeOverrides };
-    localStorage.setItem("cf-connection", JSON.stringify(cfg));
+    const cfg = { budgetId, accountIds: selAccIds||[], typeOverrides };
+    try { localStorage.setItem("cf-connection", JSON.stringify(cfg)); } catch {}
     onConnect(cfg);
   };
 
@@ -109,7 +120,7 @@ export default function ConnectionPanel({ onConnect }: Props) {
           {acct.type&&acct.type!==eff&&<div style={{color:C.muted,fontSize:9}}>Actual: {acct.type}</div>}
         </div>
         <select value={eff}
-          onChange={e=>{e.stopPropagation();saveTypeOverrides({...typeOverrides,[acct.id]:e.target.value});}}
+          onChange={e=>{ e.stopPropagation(); saveTypeOverrides({...typeOverrides,[acct.id]:e.target.value}); }}
           style={{background:`${col}22`,border:`1px solid ${col}55`,borderRadius:4,
             padding:"3px 7px",fontSize:10,color:col,fontFamily:FONT,cursor:"pointer",outline:"none"}}>
           {ACCT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
@@ -121,43 +132,66 @@ export default function ConnectionPanel({ onConnect }: Props) {
   const AccGroup = ({ label, items, color }: { label:string; items:any[]; color:string }) =>
     items.length===0 ? null : (
       <div style={{marginBottom:12}}>
-        <div style={{color:color||C.textDim,fontSize:9,letterSpacing:2,marginBottom:8}}>{label}</div>
+        <div style={{color:color,fontSize:9,letterSpacing:2,marginBottom:8}}>{label}</div>
         {items.map(a=><AccRow key={a.id} acct={a}/>)}
       </div>
     );
 
+  const steps = [
+    {id:"password", l:"1. Sign in"},
+    {id:"budget",   l:"2. Budget"},
+    {id:"accounts", l:"3. Accounts"},
+  ];
+
   return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FONT,padding:20}}>
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",
+      justifyContent:"center",fontFamily:FONT,padding:20}}>
       <div style={{width:520,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:36}}>
         <div style={{color:C.amber,fontSize:11,letterSpacing:3,marginBottom:6}}>◈ ACTUAL BUDGET</div>
         <div style={{color:C.text,fontSize:22,fontWeight:700,marginBottom:4}}>Cash Flow Dashboard</div>
 
+        {/* Step indicator */}
         <div style={{display:"flex",gap:16,marginBottom:24,marginTop:8}}>
-          {[{id:"creds",l:"1. Connect"},{id:"budget",l:"2. Budget"},{id:"accounts",l:"3. Accounts"}].map(s=>(
-            <div key={s.id} style={{fontSize:10,color:step===s.id?C.amber:C.muted,fontFamily:FONT,letterSpacing:1,borderBottom:step===s.id?`1px solid ${C.amber}`:"none",paddingBottom:2}}>{s.l}</div>
+          {steps.map(s=>(
+            <div key={s.id} style={{fontSize:10,color:step===s.id?C.amber:C.muted,fontFamily:FONT,
+              letterSpacing:1,borderBottom:step===s.id?`1px solid ${C.amber}`:"none",paddingBottom:2}}>
+              {s.l}
+            </div>
           ))}
         </div>
 
-        {/* Step 1 — just the API key, URL is handled server-side via env vars */}
-        {step==="creds"&&<>
-          <div style={{marginBottom:6,padding:"12px 14px",background:C.elevated,border:`1px solid ${C.border}`,borderRadius:7}}>
-            <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:4}}>ACTUAL API</div>
-            <div style={{color:C.teal,fontSize:12}}>Configured via server environment variables</div>
-            <div style={{color:C.muted,fontSize:9,marginTop:3}}>ACTUAL_API_URL · ACTUAL_API_KEY in .env.local</div>
-          </div>
-          <div style={{marginBottom:18,marginTop:14}}>
-            <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:5}}>API KEY <span style={{color:C.muted,fontWeight:400,fontSize:9}}>(stored in your .env.local, not here)</span></div>
-            <div style={{padding:"10px 14px",background:C.elevated,borderRadius:7,border:`1px solid ${C.border}`,color:C.textDim,fontSize:12}}>
-              Set ACTUAL_API_KEY in .env.local — the server handles auth automatically.
-            </div>
-          </div>
-          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:`${C.red}11`,borderRadius:6}}>{err}</div>}
-          <button onClick={fetchBudgets} disabled={busy}
-            style={{width:"100%",background:C.amber,color:"#060e1a",border:"none",borderRadius:7,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:FONT,marginBottom:10}}>
-            {busy?"CONNECTING…":"CONNECT →"}
+        {/* Step 1 — password */}
+        {step==="password"&&<>
+          {/* Wrap in a form so password managers detect it correctly */}
+          <form onSubmit={e=>{e.preventDefault();if(password)checkPassword();}} style={{marginBottom:18}}>
+            <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:6}}>PASSWORD</div>
+            <input
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={e=>setPassword(e.target.value)}
+              placeholder="Enter dashboard password"
+              autoFocus
+              style={{width:"100%",boxSizing:"border-box",background:C.bg,
+                border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 14px",
+                color:C.text,fontSize:13,fontFamily:FONT,outline:"none"}}
+            />
+          </form>
+          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"10px 14px",
+            background:`${C.red}11`,borderRadius:6}}>{err}</div>}
+          <button onClick={checkPassword} disabled={!password||busy}
+            style={{width:"100%",background:password?C.amber:"transparent",
+              color:password?"#060e1a":C.muted,
+              border:`1px solid ${password?C.amber:C.border}`,
+              borderRadius:7,padding:"13px 0",fontSize:13,fontWeight:700,
+              cursor:password&&!busy?"pointer":"default",fontFamily:FONT,marginBottom:10,
+              opacity:busy?0.7:1}}>
+            {busy?"CONNECTING…":"SIGN IN →"}
           </button>
           <button onClick={()=>onConnect({demo:true})}
-            style={{width:"100%",background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"10px 0",color:C.textDim,fontSize:12,cursor:"pointer",fontFamily:FONT}}>
+            style={{width:"100%",background:"transparent",border:`1px solid ${C.border}`,
+              borderRadius:7,padding:"10px 0",color:C.textDim,fontSize:12,cursor:"pointer",fontFamily:FONT}}>
             USE DEMO DATA
           </button>
         </>}
@@ -170,19 +204,30 @@ export default function ConnectionPanel({ onConnect }: Props) {
               const id = b.groupId||b.cloudFileId||b.id;
               const sel = budgetId===id;
               return (
-                <div key={id} onClick={()=>setBudgetId(id)} style={{padding:"12px 16px",
-                  background:sel?`${C.teal}15`:C.elevated,border:`1px solid ${sel?C.teal:C.border}`,
-                  borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?C.teal:C.muted}`,background:sel?C.teal:"transparent",flexShrink:0}}/>
+                <div key={id} onClick={()=>setBudgetId(id)}
+                  style={{padding:"12px 16px",background:sel?`${C.teal}15`:C.elevated,
+                    border:`1px solid ${sel?C.teal:C.border}`,borderRadius:8,
+                    cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:16,height:16,borderRadius:4,
+                    border:`2px solid ${sel?C.teal:C.muted}`,
+                    background:sel?C.teal:"transparent",flexShrink:0}}/>
                   <div style={{color:C.text,fontSize:13}}>{b.name}</div>
                 </div>
               );
             })}
           </div>
-          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:`${C.red}11`,borderRadius:6}}>{err}</div>}
+          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",
+            background:`${C.red}11`,borderRadius:6}}>{err}</div>}
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setStep("creds")} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
-            <button onClick={fetchAccounts} disabled={!budgetId||busy} style={{flex:2,background:budgetId?C.amber:"transparent",color:budgetId?"#060e1a":C.muted,border:`1px solid ${budgetId?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,cursor:budgetId?"pointer":"default",fontFamily:FONT}}>
+            <button onClick={()=>setStep("password")}
+              style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,
+                padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
+            <button onClick={fetchAccounts} disabled={!budgetId||busy}
+              style={{flex:2,background:budgetId?C.amber:"transparent",
+                color:budgetId?"#060e1a":C.muted,
+                border:`1px solid ${budgetId?C.amber:C.border}`,
+                borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,
+                cursor:budgetId&&!busy?"pointer":"default",fontFamily:FONT}}>
               {busy?"LOADING…":"SELECT ACCOUNTS →"}
             </button>
           </div>
@@ -197,20 +242,33 @@ export default function ConnectionPanel({ onConnect }: Props) {
                 <button key={l} onClick={()=>setSelAccIds(
                   l==="on-budget" ? onBudget.map(a=>a.id) :
                   l==="all open"  ? accounts.filter(a=>!a.closed).map(a=>a.id) : []
-                )} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 10px",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>{l}</button>
+                )} style={{background:"transparent",border:`1px solid ${C.border}`,
+                  borderRadius:5,padding:"3px 10px",color:C.textDim,fontSize:10,
+                  cursor:"pointer",fontFamily:FONT}}>{l}</button>
               ))}
             </div>
           </div>
-          <div style={{color:C.muted,fontSize:9,marginBottom:10}}>Account types are synced. Verify credit cards show red.</div>
+          <div style={{color:C.muted,fontSize:9,marginBottom:10,letterSpacing:0.5}}>
+            Set account types — red = credit/debt, teal = checking/savings. Types sync across devices.
+          </div>
           <div style={{maxHeight:360,overflowY:"auto",marginBottom:16}}>
             <AccGroup label="ON BUDGET"  items={onBudget}  color={C.teal}/>
             <AccGroup label="OFF BUDGET" items={offBudget} color={C.textDim}/>
             <AccGroup label="CLOSED"     items={closed}    color={C.muted}/>
           </div>
-          {selCount===0&&<div style={{color:C.amber,fontSize:11,marginBottom:12}}>Select at least one account.</div>}
+          {selCount===0&&<div style={{color:C.amber,fontSize:11,marginBottom:12}}>
+            Select at least one account.
+          </div>}
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setStep("budget")} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
-            <button onClick={connect} disabled={selCount===0} style={{flex:2,background:selCount>0?C.amber:"transparent",color:selCount>0?"#060e1a":C.muted,border:`1px solid ${selCount>0?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,cursor:selCount>0?"pointer":"default",fontFamily:FONT}}>
+            <button onClick={()=>setStep("budget")}
+              style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,
+                padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
+            <button onClick={connect} disabled={selCount===0}
+              style={{flex:2,background:selCount>0?C.amber:"transparent",
+                color:selCount>0?"#060e1a":C.muted,
+                border:`1px solid ${selCount>0?C.amber:C.border}`,
+                borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,
+                cursor:selCount>0?"pointer":"default",fontFamily:FONT}}>
               OPEN DASHBOARD →
             </button>
           </div>

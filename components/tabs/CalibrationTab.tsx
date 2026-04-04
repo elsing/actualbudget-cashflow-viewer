@@ -1,12 +1,19 @@
 "use client";
+import React from "react";
+import type { UiState, AppData, AppState, Scenario, Group } from "@/types";
 import { useState, useMemo } from "react";
 import { C, FONT, TYPE_COLOR } from "@/lib/constants";
 import { fmt, fmtR, pc, fmtM } from "@/lib/helpers";
 import { sSet } from "@/lib/helpers";
 import { SK } from "@/lib/constants";
 
-export default function CalibrationTab({ data, reconciliations, onReconciliationsChange }) {
-  const [editingCell, setEditingCell] = useState(null); // {acctId, month}
+interface CalibrationTabProps {
+  data: AppData;
+  reconciliations: AppState["reconciliations"];
+  onReconciliationsChange: (r: AppState["reconciliations"]) => void;
+}
+export default function CalibrationTab({ data, reconciliations, onReconciliationsChange }: CalibrationTabProps) {
+  const [editingCell, setEditingCell] = useState<{acctId:string;month:string}|null>(null);
   const [draft, setDraft] = useState("");
   const [showAll, setShowAll] = useState(false);
 
@@ -17,7 +24,7 @@ export default function CalibrationTab({ data, reconciliations, onReconciliation
 
   const acctMonthBals = data.accountMonthBals || {};
 
-  const setRec = (acctId, month, valueStr) => {
+  const setRec = (acctId: string, month: string, valueStr: string) => {
     const cents = pc(valueStr);
     const next = {
       ...reconciliations,
@@ -27,7 +34,7 @@ export default function CalibrationTab({ data, reconciliations, onReconciliation
     sSet(SK.cal, { reconciliations: next });
   };
 
-  const clearRec = (acctId, month) => {
+  const clearRec = (acctId: string, month: string) => {
     const next = { ...reconciliations };
     if (next[acctId]) {
       const acctRecs = { ...next[acctId] };
@@ -45,7 +52,7 @@ export default function CalibrationTab({ data, reconciliations, onReconciliation
 
   // Recompute per-account forward balances incorporating current reconciliations
   const computedBals = useMemo(() => {
-    const result = {};
+    const result: Record<string,Record<string,{calc:number;end:number;net:number;isRec:boolean;drift:number}>> = {};
     for (const acct of accounts) {
       result[acct.id] = {};
       const recs = reconciliations[acct.id] || {};
@@ -66,7 +73,7 @@ export default function CalibrationTab({ data, reconciliations, onReconciliation
     return result;
   }, [accounts, reconciliations, data, allMonths]);
 
-  const cellStyle = (acctId, mKey) => {
+  const cellStyle = (acctId: string, mKey: string): React.CSSProperties & {border?:string} => {
     const b = computedBals[acctId]?.[mKey];
     if (!b) return {background:C.elevated,color:C.muted};
     if (b.isRec) return {background:`${C.amber}22`,color:C.amber,border:`1px solid ${C.amber}55`};

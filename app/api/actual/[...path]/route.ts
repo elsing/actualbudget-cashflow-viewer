@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { actualFetch } from "@/lib/actual";
 
+// Optional dashboard password — set CF_DASHBOARD_PASSWORD in .env.local
+// If not set, no password is required (useful for local-only deployments)
+const DASHBOARD_PASSWORD = process.env.CF_DASHBOARD_PASSWORD ?? "";
+
+function checkAuth(req: NextRequest): boolean {
+  if (!DASHBOARD_PASSWORD) return true; // no password configured
+  const header = req.headers.get("x-dashboard-password") ?? "";
+  const cookie = req.cookies.get("cf-auth")?.value ?? "";
+  return header === DASHBOARD_PASSWORD || cookie === DASHBOARD_PASSWORD;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  if (!checkAuth(request)) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   return proxy(request, (await params).path, "GET");
 }
 
@@ -12,6 +24,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  if (!checkAuth(request)) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   return proxy(request, (await params).path, "POST", await request.text());
 }
 

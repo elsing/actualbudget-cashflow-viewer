@@ -19,8 +19,13 @@ export default function ConnectionPanel({ onConnect }: Props) {
 
   // Load saved config and type overrides on mount (client-only)
   useEffect(() => {
+    // Restore password from sessionStorage (survives reload, cleared on tab close)
+    const savedPw = sessionStorage.getItem("cf-pw") ?? "";
+    if (savedPw) setPassword(savedPw);
+
+    let s: Record<string,any> = {};
     try {
-      const s = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+      s = JSON.parse(localStorage.getItem("cf-connection")||"{}");
       setSaved(s);
       if (s.budgetId)       setBudgetId(s.budgetId);
       if (s.typeOverrides)  setTypeOverrides(s.typeOverrides);
@@ -36,6 +41,35 @@ export default function ConnectionPanel({ onConnect }: Props) {
         } catch {}
       }
     });
+
+    // If we have a saved connection, try fetching budgets without a password.
+    // If it succeeds (no CF_DASHBOARD_PASSWORD set), skip straight to budget/accounts.
+    // If it 401s, stay on the password step.
+    if (s.budgetId) {
+      const probePw = sessionStorage.getItem("cf-pw") ?? "";
+      fetch("/api/actual/v1/budgets", { headers: probePw ? { "x-dashboard-password": probePw } : {} }).then(async r => {
+        if (r.ok) {
+          const d = await r.json();
+          const all = d.data??d??[];
+          const seen = new Set<string>();
+          const unique = all.filter((b:any) => { if(seen.has(b.name))return false; seen.add(b.name); return true; });
+          setBudgets(unique);
+          // Skip password, go straight to accounts since we already have a saved budgetId
+          setStep("accounts");
+          // Fetch accounts too
+          fetch(`/api/actual/v1/budgets/${s.budgetId}/accounts`).then(async ar => {
+            if (!ar.ok) return;
+            const aj = await ar.json();
+            const all2 = aj.data??aj??[];
+            const seen2 = new Set<string>();
+            const unique2 = all2.filter((a:any)=>{ if(!a.id||seen2.has(a.id))return false; seen2.add(a.id); return true; });
+            setAccounts(unique2);
+            setSelAccIds(s.accountIds?.length ? s.accountIds : unique2.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id));
+          });
+        }
+        // If 401 or error, stay on password step — user needs to authenticate
+      }).catch(() => {});
+    }
   }, []);
 
   const saveTypeOverrides = (ovs: Record<string,string>) => {
@@ -64,7 +98,7 @@ export default function ConnectionPanel({ onConnect }: Props) {
       const unique = all.filter((b:any) => { if(seen.has(b.name))return false; seen.add(b.name); return true; });
       setBudgets(unique);
       // Save password in session for subsequent API calls
-      sessionStorage.setItem("cf-password", password);
+      sessionStorage.setItem("cf-pw", password);
       setStep("budget");
     } catch(e:any) { setErr(e.message); }
     setBusy(false);
@@ -73,7 +107,9 @@ export default function ConnectionPanel({ onConnect }: Props) {
   const fetchAccounts = async () => {
     setBusy(true); setErr("");
     try {
-      const r = await fetch(`/api/actual/v1/budgets/${budgetId}/accounts`);
+      const r = await fetch(`/api/actual/v1/budgets/${budgetId}/accounts`, {
+        headers: password ? { "x-dashboard-password": password } : {},
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       const all = j.data??j??[];
@@ -92,8 +128,8 @@ export default function ConnectionPanel({ onConnect }: Props) {
     setSelAccIds(p => p?.includes(id) ? p.filter(x=>x!==id) : [...(p||[]), id]);
 
   const connect = () => {
-    const cfg = { budgetId, accountIds: selAccIds||[], typeOverrides };
-    try { localStorage.setItem("cf-connection", JSON.stringify(cfg)); } catch {}
+    const cfg = { budgetId, accountIds: selAccIds||[], typeOverrides, password };
+    try { localStorage.setItem("cf-connection", JSON.stringify({ budgetId, accountIds: selAccIds||[], typeOverrides })); } catch {}
     onConnect(cfg);
   };
 

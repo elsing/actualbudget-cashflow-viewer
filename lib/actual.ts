@@ -4,7 +4,7 @@
  */
 
 const BASE = (process.env.ACTUAL_API_URL ?? "http://localhost:5007").replace(/\/$/, "");
-const KEY  =  process.env.ACTUAL_API_KEY ?? "";
+const KEY  = process.env.ACTUAL_API_KEY ?? "";
 
 export function actualHeaders(): Record<string, string> {
   return { "x-api-key": KEY, "Content-Type": "application/json" };

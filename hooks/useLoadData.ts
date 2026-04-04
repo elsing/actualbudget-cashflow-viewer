@@ -74,6 +74,7 @@ interface Config {
   budgetId?: string;
   accountIds?: string[];
   typeOverrides?: Record<string, string>;
+  password?: string;
 }
 
 interface LoadEntry { text: string; status: "ok"|"error"|"warn"|"pending"; detail?: string; }
@@ -117,9 +118,9 @@ export function useLoadData(config: Config | null) {
       // API key lives in env vars, never touches the browser.
       const syncId  = config.budgetId!;
       const typeOvs = config.typeOverrides || {};
-      // Include dashboard password header if one was set at sign-in
-      const pw = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("cf-password") ?? "" : "";
-      const authHeaders: Record<string, string> = pw ? { "x-dashboard-password": pw } : {};
+      const pw = config.password || (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("cf-pw") ?? "" : "");
+      const authHeaders: Record<string, string> = {};
+      if (pw) authHeaders["x-dashboard-password"] = pw;
       const now     = new Date();
       const start   = new Date(); start.setMonth(start.getMonth()-23); start.setDate(1);
       const startStr = start.toISOString().slice(0,10);

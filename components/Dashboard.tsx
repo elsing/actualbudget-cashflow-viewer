@@ -40,6 +40,7 @@ interface Config {
   budgetId?: string;
   accountIds?: string[];
   typeOverrides?: Record<string,string>;
+  password?: string;
 }
 
 // ── Loading screen ────────────────────────────────────────────────────────────
@@ -213,21 +214,20 @@ export default function Dashboard() {
   const [ready,   setReady]   = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-      if (saved.budgetId && saved.accountIds?.length > 0) setConfig(saved);
-    } catch {}
+    // Do NOT auto-restore config here — always go through ConnectionPanel
+    // so the password is collected when CF_DASHBOARD_PASSWORD is set.
+    // ConnectionPanel handles auto-advancing if no password is required.
     setReady(true);
   }, []);
 
-  // Server render + first client render: blank background, no content.
-  // React reconciles this as a no-op and then applies the effect.
   if (!ready) return <div style={{minHeight:"100vh",background:C.bg}}/>;
 
   if (!config) return (
     <ConnectionPanel onConnect={(cfg: Config) => {
       if (!cfg.demo) {
-        try { localStorage.setItem("cf-connection", JSON.stringify(cfg)); } catch {}
+        // Save connection details but NOT the password
+        const { password: _pw, ...connectionOnly } = cfg;
+        try { localStorage.setItem("cf-connection", JSON.stringify(connectionOnly)); } catch {}
       }
       setConfig(cfg);
     }}/>

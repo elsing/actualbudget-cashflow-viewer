@@ -4,7 +4,7 @@ services:
     container_name: cashflow-dashboard
     image: cashflow-dashboard:latest
     ports:
-      - "5006:3000"
+      - "5008:5008"
     volumes:
       - cashflow-data:/app/data
     environment:

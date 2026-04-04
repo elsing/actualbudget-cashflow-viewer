@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { actualFetch } from "@/lib/actual";
 
-// Optional dashboard password — set CF_DASHBOARD_PASSWORD in .env.local
-// If not set, no password is required (useful for local-only deployments)
 const DASHBOARD_PASSWORD = process.env.CF_DASHBOARD_PASSWORD ?? "";
 
 function checkAuth(req: NextRequest): boolean {
-  if (!DASHBOARD_PASSWORD) return true; // no password configured
+  if (!DASHBOARD_PASSWORD) return true;
   const header = req.headers.get("x-dashboard-password") ?? "";
   const cookie = req.cookies.get("cf-auth")?.value ?? "";
   return header === DASHBOARD_PASSWORD || cookie === DASHBOARD_PASSWORD;

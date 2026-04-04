@@ -1,9 +1,10 @@
 services:
   # Cash Flow Dashboard — Next.js, handles its own SQLite persistence
-  cashflow:
+  cashflow-dashboard:
+    container_name: cashflow-dashboard
     image: cashflow-dashboard:latest
     ports:
-      - "3000:3000"
+      - "5006:3000"
     volumes:
       - cashflow-data:/app/data
     environment:
@@ -11,7 +12,8 @@ services:
       # Or env.local can be used
       ACTUAL_API_URL: "${ACTUAL_API_URL}"
       ACTUAL_API_KEY: "${ACTUAL_API_KEY}"
-      DB_PATH:        "${DB_PATH:-./data/cashflow.db}"
+      CF_DASHBOARD_PASSWORD: "${CF_DASHBOARD_PASSWORD}"
+      DB_PATH:        "${DB_PATH:-/app/data/cashflow.db}"
     restart: unless-stopped
     # depends_on:
     #   - actual-http-api

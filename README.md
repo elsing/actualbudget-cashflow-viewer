@@ -2,7 +2,9 @@
 
 A self-hosted personal finance dashboard built on [Actual Budget](https://actualbudget.org/). All Actual API calls are proxied server-side — your API key never reaches the browser.
 
-Built with **Next.js 15**, **TypeScript**, and **Node.js built-in SQLite** (`node:sqlite`). No native dependencies.
+Built with **Next.js 16**, **TypeScript**, and **Node.js built-in SQLite** (`node:sqlite`). No native dependencies.
+
+Claude AI coded the project, with me providing the direction for it. I am aware there are a few bugs here and there, but on the whole it works.
 
 ---
 
@@ -24,8 +26,8 @@ On first load, click **CONNECT →** to select your budget and accounts.
 
 ## Requirements
 
-- **Node.js 22.5+** (Node 24 recommended — `node:sqlite` is stable there)
-- An [actual-http-api](https://github.com/jhonderson/actual-http-api) instance running
+- **Node.js 24+**
+- An [Actual-Budget](https://github.com/actualbudget/actual instance running
 
 ---
 

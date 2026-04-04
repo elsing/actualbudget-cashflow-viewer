@@ -1,0 +1,34 @@
+services:
+  cashflow:
+    image: cashflow-dashboard:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - cashflow-data:/app/data
+    environment:
+      # Server-side only — never sent to browser
+      # Or env.local can be used
+      ACTUAL_API_URL: "${ACTUAL_API_URL}"
+      ACTUAL_API_KEY: "${ACTUAL_API_KEY}"
+      DB_PATH:        "${DB_PATH:-./data/cashflow.db}"
+    restart: unless-stopped
+    # depends_on:
+    #   - actual-http-api
+  
+  # Required for the dashboard to work, but it is likely easier to combine this with the Actual budget compose file
+  #  
+  # actual-http-api — the REST API wrapper for Actual
+  # actual-http-api:
+  #   image: jhonderson/actual-http-api:latest
+  #   ports:
+  #     - "5007:5007"
+  #   environment:
+  #     ACTUAL_SERVER_URL:      "${ACTUAL_SERVER_URL}"
+  #     ACTUAL_SERVER_PASSWORD: "${ACTUAL_SERVER_PASSWORD}"
+  #     API_KEY:                "${ACTUAL_API_KEY}"
+  #   restart: unless-stopped
+
+  # Cash Flow Dashboard — Next.js, handles its own SQLite persistence
+
+volumes:
+  cashflow-data:

@@ -1,0 +1,221 @@
+"use client";
+import { useState, useEffect } from "react";
+import { C, FONT, ACCT_TYPES, TYPE_COLOR, SK } from "@/lib/constants";
+import { sGet, sSet } from "@/lib/helpers";
+
+interface Props { onConnect: (cfg: any) => void; }
+
+export default function ConnectionPanel({ onConnect }: Props) {
+  const saved = typeof window !== "undefined"
+    ? JSON.parse(localStorage.getItem("cf-connection")||"{}") : {};
+
+  const [apiKey,        setApiKey]        = useState<string>(saved.apiKey||"");
+  const [budgets,       setBudgets]       = useState<any[]>([]);
+  const [budgetId,      setBudgetId]      = useState<string>(saved.budgetId||"");
+  const [accounts,      setAccounts]      = useState<any[]>([]);
+  const [selAccIds,     setSelAccIds]     = useState<string[]|null>(null);
+  const [typeOverrides, setTypeOverrides] = useState<Record<string,string>>(saved.typeOverrides||{});
+  const [step,  setStep]  = useState<"creds"|"budget"|"accounts">("creds");
+  const [busy,  setBusy]  = useState(false);
+  const [err,   setErr]   = useState("");
+
+  // Load typeOverrides from DB on mount
+  useEffect(() => {
+    sGet(SK.conn).then((conn: any) => {
+      if (conn?.typeOverrides && Object.keys(conn.typeOverrides).length > 0) {
+        setTypeOverrides(conn.typeOverrides);
+        const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+        localStorage.setItem("cf-connection", JSON.stringify({...cur,typeOverrides:conn.typeOverrides}));
+      }
+    });
+  }, []);
+
+  const f: React.CSSProperties = {
+    width:"100%", boxSizing:"border-box",
+    background:C.bg, border:`1px solid ${C.border}`,
+    borderRadius:7, padding:"10px 14px",
+    color:C.text, fontSize:13, fontFamily:FONT, outline:"none",
+  };
+
+  const saveTypeOverrides = (ovs: Record<string,string>) => {
+    setTypeOverrides(ovs);
+    const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+    localStorage.setItem("cf-connection", JSON.stringify({...cur,typeOverrides:ovs}));
+    sSet(SK.conn, { typeOverrides: ovs });
+  };
+
+  const fetchBudgets = async () => {
+    setBusy(true); setErr("");
+    try {
+      // Budget list goes through our server-side proxy — no API key in browser
+      const r = await fetch("/api/actual/v1/budgets");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const all = d.data??d??[];
+      const seen = new Set<string>();
+      const unique = all.filter((b:any) => { if(seen.has(b.name))return false; seen.add(b.name); return true; });
+      setBudgets(unique);
+      setStep("budget");
+    } catch(e:any) { setErr(`Could not connect: ${e.message}`); }
+    setBusy(false);
+  };
+
+  const fetchAccounts = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`/api/actual/v1/budgets/${budgetId}/accounts`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const all = j.data??j??[];
+      const seen = new Set<string>();
+      const unique = all.filter((a:any)=>{ if(!a.id||seen.has(a.id))return false; seen.add(a.id); return true; });
+      setAccounts(unique);
+      const savedIds = saved.budgetId===budgetId ? saved.accountIds : null;
+      setSelAccIds(savedIds || unique.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id));
+      setStep("accounts");
+    } catch(e:any) { setErr(`Could not fetch accounts: ${e.message}`); }
+    setBusy(false);
+  };
+
+  const toggleAcc = (id: string) =>
+    setSelAccIds(p => p?.includes(id)?p.filter(x=>x!==id):[...(p||[]),id]);
+
+  const connect = () => {
+    const cfg = { budgetId, accountIds:selAccIds||[], typeOverrides };
+    localStorage.setItem("cf-connection", JSON.stringify(cfg));
+    onConnect(cfg);
+  };
+
+  const onBudget  = accounts.filter(a=>!a.offbudget&&!a.closed);
+  const offBudget = accounts.filter(a=> a.offbudget&&!a.closed);
+  const closed    = accounts.filter(a=>a.closed);
+  const selCount  = selAccIds?.length??0;
+
+  const AccRow = ({ acct }: { acct: any }) => {
+    const sel = (selAccIds||[]).includes(acct.id);
+    const eff = typeOverrides[acct.id] || acct.type || "other";
+    const col = TYPE_COLOR[eff] || C.textDim;
+    return (
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+        background:sel?`${C.teal}11`:C.elevated, border:`1px solid ${sel?C.teal:C.border}`,
+        borderRadius:7, marginBottom:5}}>
+        <div onClick={()=>toggleAcc(acct.id)} style={{width:16,height:16,borderRadius:4,
+          border:`2px solid ${sel?C.teal:C.muted}`,background:sel?C.teal:"transparent",
+          flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+          {sel&&<span style={{color:"#060e1a",fontSize:10,fontWeight:700}}>✓</span>}
+        </div>
+        <div onClick={()=>toggleAcc(acct.id)} style={{flex:1,cursor:"pointer"}}>
+          <div style={{color:C.text,fontSize:13}}>{acct.name}</div>
+          {acct.type&&acct.type!==eff&&<div style={{color:C.muted,fontSize:9}}>Actual: {acct.type}</div>}
+        </div>
+        <select value={eff}
+          onChange={e=>{e.stopPropagation();saveTypeOverrides({...typeOverrides,[acct.id]:e.target.value});}}
+          style={{background:`${col}22`,border:`1px solid ${col}55`,borderRadius:4,
+            padding:"3px 7px",fontSize:10,color:col,fontFamily:FONT,cursor:"pointer",outline:"none"}}>
+          {ACCT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+    );
+  };
+
+  const AccGroup = ({ label, items, color }: { label:string; items:any[]; color:string }) =>
+    items.length===0 ? null : (
+      <div style={{marginBottom:12}}>
+        <div style={{color:color||C.textDim,fontSize:9,letterSpacing:2,marginBottom:8}}>{label}</div>
+        {items.map(a=><AccRow key={a.id} acct={a}/>)}
+      </div>
+    );
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FONT,padding:20}}>
+      <div style={{width:520,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:36}}>
+        <div style={{color:C.amber,fontSize:11,letterSpacing:3,marginBottom:6}}>◈ ACTUAL BUDGET</div>
+        <div style={{color:C.text,fontSize:22,fontWeight:700,marginBottom:4}}>Cash Flow Dashboard</div>
+
+        <div style={{display:"flex",gap:16,marginBottom:24,marginTop:8}}>
+          {[{id:"creds",l:"1. Connect"},{id:"budget",l:"2. Budget"},{id:"accounts",l:"3. Accounts"}].map(s=>(
+            <div key={s.id} style={{fontSize:10,color:step===s.id?C.amber:C.muted,fontFamily:FONT,letterSpacing:1,borderBottom:step===s.id?`1px solid ${C.amber}`:"none",paddingBottom:2}}>{s.l}</div>
+          ))}
+        </div>
+
+        {/* Step 1 — just the API key, URL is handled server-side via env vars */}
+        {step==="creds"&&<>
+          <div style={{marginBottom:6,padding:"12px 14px",background:C.elevated,border:`1px solid ${C.border}`,borderRadius:7}}>
+            <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:4}}>ACTUAL API</div>
+            <div style={{color:C.teal,fontSize:12}}>Configured via server environment variables</div>
+            <div style={{color:C.muted,fontSize:9,marginTop:3}}>ACTUAL_API_URL · ACTUAL_API_KEY in .env.local</div>
+          </div>
+          <div style={{marginBottom:18,marginTop:14}}>
+            <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:5}}>API KEY <span style={{color:C.muted,fontWeight:400,fontSize:9}}>(stored in your .env.local, not here)</span></div>
+            <div style={{padding:"10px 14px",background:C.elevated,borderRadius:7,border:`1px solid ${C.border}`,color:C.textDim,fontSize:12}}>
+              Set ACTUAL_API_KEY in .env.local — the server handles auth automatically.
+            </div>
+          </div>
+          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:`${C.red}11`,borderRadius:6}}>{err}</div>}
+          <button onClick={fetchBudgets} disabled={busy}
+            style={{width:"100%",background:C.amber,color:"#060e1a",border:"none",borderRadius:7,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:FONT,marginBottom:10}}>
+            {busy?"CONNECTING…":"CONNECT →"}
+          </button>
+          <button onClick={()=>onConnect({demo:true})}
+            style={{width:"100%",background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"10px 0",color:C.textDim,fontSize:12,cursor:"pointer",fontFamily:FONT}}>
+            USE DEMO DATA
+          </button>
+        </>}
+
+        {/* Step 2 — budget */}
+        {step==="budget"&&<>
+          <div style={{color:C.textDim,fontSize:11,marginBottom:16}}>Select your budget:</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+            {budgets.map(b=>{
+              const id = b.groupId||b.cloudFileId||b.id;
+              const sel = budgetId===id;
+              return (
+                <div key={id} onClick={()=>setBudgetId(id)} style={{padding:"12px 16px",
+                  background:sel?`${C.teal}15`:C.elevated,border:`1px solid ${sel?C.teal:C.border}`,
+                  borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?C.teal:C.muted}`,background:sel?C.teal:"transparent",flexShrink:0}}/>
+                  <div style={{color:C.text,fontSize:13}}>{b.name}</div>
+                </div>
+              );
+            })}
+          </div>
+          {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"9px 12px",background:`${C.red}11`,borderRadius:6}}>{err}</div>}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setStep("creds")} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
+            <button onClick={fetchAccounts} disabled={!budgetId||busy} style={{flex:2,background:budgetId?C.amber:"transparent",color:budgetId?"#060e1a":C.muted,border:`1px solid ${budgetId?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,cursor:budgetId?"pointer":"default",fontFamily:FONT}}>
+              {busy?"LOADING…":"SELECT ACCOUNTS →"}
+            </button>
+          </div>
+        </>}
+
+        {/* Step 3 — accounts */}
+        {step==="accounts"&&<>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{color:C.textDim,fontSize:11}}>{selCount} account{selCount!==1?"s":""} selected</div>
+            <div style={{display:"flex",gap:6}}>
+              {["on-budget","all open","none"].map(l=>(
+                <button key={l} onClick={()=>setSelAccIds(
+                  l==="on-budget" ? onBudget.map(a=>a.id) :
+                  l==="all open"  ? accounts.filter(a=>!a.closed).map(a=>a.id) : []
+                )} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 10px",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{color:C.muted,fontSize:9,marginBottom:10}}>Account types are synced. Verify credit cards show red.</div>
+          <div style={{maxHeight:360,overflowY:"auto",marginBottom:16}}>
+            <AccGroup label="ON BUDGET"  items={onBudget}  color={C.teal}/>
+            <AccGroup label="OFF BUDGET" items={offBudget} color={C.textDim}/>
+            <AccGroup label="CLOSED"     items={closed}    color={C.muted}/>
+          </div>
+          {selCount===0&&<div style={{color:C.amber,fontSize:11,marginBottom:12}}>Select at least one account.</div>}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setStep("budget")} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
+            <button onClick={connect} disabled={selCount===0} style={{flex:2,background:selCount>0?C.amber:"transparent",color:selCount>0?"#060e1a":C.muted,border:`1px solid ${selCount>0?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,cursor:selCount>0?"pointer":"default",fontFamily:FONT}}>
+              OPEN DASHBOARD →
+            </button>
+          </div>
+        </>}
+      </div>
+    </div>
+  );
+}

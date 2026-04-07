@@ -92,4 +92,5 @@ export interface UiState {
   projStartBal:      number | null;
   projIncomeDay:     number | null;
   projDayOverrides:  Record<string, number>;
+  settledDay:        number;
 }

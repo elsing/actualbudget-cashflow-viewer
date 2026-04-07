@@ -39,7 +39,7 @@ function HoverCard({ m, bc, bg, isSelected, onSelect, onCycle, onRange, inRange,
         </div>
       </div>
       <div onClick={()=>onSelect(m.month)}>
-        {hov&&<><div style={{color:C.textDim,fontSize:9,marginBottom:2}}>START</div>
+        {hov&&<><div style={{color:C.textDim,fontSize:9,marginBottom:2}}>SETTLED</div>
         <div style={{color:C.textDim,fontSize:11,marginBottom:3}}>{fmt(m.startBalance)}</div>
         <div style={{color:C.textDim,fontSize:9,marginBottom:2}}>END</div></>}
         <div style={{color:m.endBalance>=m.startBalance?C.teal:C.red,fontSize:hov?13:12,fontWeight:700}}>{fmt(m.endBalance)}</div>
@@ -129,20 +129,20 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     });
   }, [data, activeAccountObjs, rawAccountObjects, reconciliations]);
 
-  // For display: "start balance" on a month card = end of day 1
-  // (after transfers on the 1st have settled — what you actually have available)
-  // "end balance" = end of last day of month (already correct from calibration)
+  // For display: "settled balance" = balance after the first N days of the month.
+  // Accounts for bills that land on day 2-3 due to weekends/bank holidays.
+  // settledDay is configurable in Settings (default 5).
+  const settledDay = uiState.settledDay ?? 5;
   const allMonthsDisplay = useMemo(() => {
     return allMonths.map(m => {
-      // Find transactions on day 1 of this month (filtered by selected accounts)
-      const day1Txs = (m.transactions||[]).filter(tx => {
-        const txDay = tx.date?.split("-")[2];
-        if (txDay !== "01") return false;
-        // Apply account filter
+      // Sum transactions up to and including settledDay
+      const settledTxs = (m.transactions||[]).filter(tx => {
+        const txDay = parseInt(tx.date?.split("-")[2] || "0");
+        if (txDay < 1 || txDay > settledDay) return false;
         return !activeAccountNames.length || activeAccountNames.includes(tx.account) || !tx.account;
       });
-      const day1Net = day1Txs.reduce((s,tx)=>s+(tx.amount||0), 0);
-      const startBalanceDisplay = m.startBalance + day1Net;
+      const settledNet = settledTxs.reduce((s,tx)=>s+(tx.amount||0), 0);
+      const startBalanceDisplay = m.startBalance + settledNet;
       return { ...m, startBalance: startBalanceDisplay };
     });
   }, [allMonths, activeAccountNames]);
@@ -429,7 +429,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
             <div style={{color:C.amber,fontSize:11,letterSpacing:2,marginBottom:10}}>GAP</div>
             <div style={{color:C.amber,fontSize:28,fontWeight:700}}>{fmt((goodAvgEnd??0)-(badAvgEnd??0))}</div>
             <div style={{color:C.textDim,fontSize:12,marginTop:4}}>end balance gap</div>
-            <div style={{color:C.textDim,fontSize:11,marginTop:6}}>start gap <span style={{color:C.amber}}>{fmt((goodAvgStart??0)-(badAvgStart??0))}</span></div>
+            <div style={{color:C.textDim,fontSize:11,marginTop:6}}>settled gap <span style={{color:C.amber}}>{fmt((goodAvgStart??0)-(badAvgStart??0))}</span></div>
           </div>}
         </div>
       )}
@@ -466,7 +466,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
                   </div>
                 </div>
                 <div onClick={()=>setSelMonth(m.month)} style={{cursor:"pointer"}}>
-                  <div style={{color:C.textDim,fontSize:9,marginBottom:2}}>START</div>
+                  <div style={{color:C.textDim,fontSize:9,marginBottom:2}}>SETTLED</div>
                   <div style={{color:C.textDim,fontSize:12}}>{fmt(m.startBalance)}</div>
                   <div style={{color:C.textDim,fontSize:9,marginTop:5,marginBottom:2}}>END</div>
                   <div style={{color:m.endBalance>=m.startBalance?C.teal:C.red,fontSize:15,fontWeight:700}}>{fmt(m.endBalance)}</div>
@@ -484,7 +484,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
             <div>
               <div style={{color:C.amber,fontSize:10,letterSpacing:2,marginBottom:4}}>{fmtM(selMonth).toUpperCase()} — DAY BY DAY</div>
               <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-                <span style={{color:C.blue,fontSize:12}}>start {fmt(selMData.startBalance)}</span>
+                <span style={{color:C.blue,fontSize:12}}>settled {fmt(selMData.startBalance)}</span>
                 <span style={{color:selMData.endBalance>=(selMDataRaw?.startBalance??0)?C.teal:C.red,fontSize:13,fontWeight:700}}>end {fmt(selMData.endBalance)}</span>
                 <span style={{color:selMData.endBalance>=(selMDataRaw?.startBalance??0)?C.green:C.red,fontSize:12}}>net {fmt(selMData.endBalance-(selMDataRaw?.startBalance??0))}</span>
                 {isCurrentMonth&&<span style={{color:C.textDim,fontSize:11}}>· today {fmtD(today)}</span>}

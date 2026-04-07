@@ -6,65 +6,107 @@ import { mkScenarios } from "@/lib/finance";
 import type { AppState, AppData, Month, Transaction } from "@/types";
 
 // ── Demo data ─────────────────────────────────────────────────────────────────
+// Based on a typical UK household: couple, combined take-home ~£3,800/mo,
+// renting a 2-bed flat, one car, standard bills. Amounts in pence.
 function generateDemo(): AppData {
-  const cats = ["Housing","Food & Dining","Transport","Entertainment","Healthcare","Shopping","Utilities","Subscriptions"];
+  const cats = ["Rent","Groceries","Eating Out","Transport","Energy & Water","Council Tax","Insurance","Subscriptions","Clothing","Personal Care","Entertainment","Savings"];
+  const groups = ["Home","Food","Transport","Bills","Lifestyle","Savings"];
+  const catGroupMap: Record<string,string> = {
+    "Rent":"Home","Groceries":"Food","Eating Out":"Food",
+    "Transport":"Transport","Energy & Water":"Bills","Council Tax":"Bills",
+    "Insurance":"Bills","Subscriptions":"Lifestyle","Clothing":"Lifestyle",
+    "Personal Care":"Lifestyle","Entertainment":"Lifestyle","Savings":"Savings",
+  };
   const now  = new Date();
   const acctObjs = [
-    {id:"demo-current",name:"Current",     type:"checking"},
-    {id:"demo-cc",     name:"Credit Card", type:"credit"},
+    {id:"demo-current", name:"Joint Current",  type:"checking"},
+    {id:"demo-savings", name:"Easy Access ISA", type:"savings"},
   ];
   const months: Month[] = [];
-  let curBal = 150000, ccBal = 0;
+  // Start with a plausible balance
+  let curBal = 340000;  // £3,400 current account
+  let savBal = 620000;  // £6,200 savings
 
-  for (let i=23; i>=0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+  for (let i = 23; i >= 0; i--) {
+    const d   = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    const income = 860000 + Math.round((Math.random()-.25)*100000);
-    const catExp: Record<string,number> = {
-      Housing:195000, "Food & Dining":58000+Math.round((Math.random()-.5)*22000),
-      Transport:36000+Math.round((Math.random()-.5)*12000),
-      Entertainment:22000+Math.round((Math.random()-.5)*18000),
-      Healthcare:12000+Math.round(Math.random()*28000),
-      Shopping:48000+Math.round((Math.random()-.5)*38000),
-      Utilities:22000+Math.round((Math.random()-.5)*5000),
-      Subscriptions:8500,
-    };
-    const expenses = Object.values(catExp).reduce((a,b)=>a+b,0);
+    const mo  = d.getMonth(); // 0=Jan, used for seasonal variation
+
+    // Combined take-home: £3,750–£3,850 with occasional overtime
+    const baseIncome = 375000;
+    const bonusMonth = mo === 11; // December bonus
+    const income = baseIncome + (bonusMonth ? 45000 : 0) + Math.round((Math.random() - 0.3) * 15000);
+
+    // Seasonal spending — higher energy in winter, higher entertainment in summer
+    const isWinter  = mo <= 1 || mo >= 10;
+    const isSummer  = mo >= 5 && mo <= 8;
+
     const txs: Transaction[] = [
-      {id:`${key}-rent`, date:`${key}-01`,payee:"Landlord",   category:"Housing",       amount:-195000,account:"Current",     isIncome:false},
-      {id:`${key}-g1`,   date:`${key}-03`,payee:"Tesco",      category:"Food & Dining", amount:-Math.round(14000+Math.random()*8000),account:"Current"},
-      {id:`${key}-g2`,   date:`${key}-05`,payee:"Tesco",      category:"Food & Dining", amount:-Math.round(8000+Math.random()*5000), account:"Current"},
-      {id:`${key}-fuel`, date:`${key}-07`,payee:"BP Fuel",    category:"Transport",     amount:-Math.round(4000+Math.random()*3000), account:"Current"},
-      {id:`${key}-nf`,   date:`${key}-08`,payee:"Netflix",    category:"Subscriptions", amount:-1499,  account:"Credit Card"},
-      {id:`${key}-sp`,   date:`${key}-09`,payee:"Spotify",    category:"Subscriptions", amount:-999,   account:"Credit Card"},
-      {id:`${key}-sal`,  date:`${key}-10`,payee:"Employer",   category:"Income",        amount:income, account:"Current",isIncome:true},
-      {id:`${key}-amz`,  date:`${key}-11`,payee:"Amazon",     category:"Shopping",      amount:-Math.round(6000+Math.random()*20000),account:"Credit Card"},
-      {id:`${key}-edf`,  date:`${key}-12`,payee:"EDF Energy", category:"Utilities",     amount:-Math.round(8000+Math.random()*4000), account:"Current"},
-      {id:`${key}-g3`,   date:`${key}-14`,payee:"Tesco",      category:"Food & Dining", amount:-Math.round(9000+Math.random()*5000), account:"Current"},
-      {id:`${key}-boots`,date:`${key}-17`,payee:"Boots",      category:"Healthcare",    amount:-Math.round(1500+Math.random()*8000), account:"Credit Card"},
-      {id:`${key}-gym`,  date:`${key}-18`,payee:"Gym",        category:"Entertainment", amount:-3500,  account:"Current"},
-      {id:`${key}-g4`,   date:`${key}-22`,payee:"Tesco",      category:"Food & Dining", amount:-Math.round(7000+Math.random()*4000), account:"Current"},
-      {id:`${key}-water`,date:`${key}-25`,payee:"Thames Water",category:"Utilities",   amount:-Math.round(3000+Math.random()*1000), account:"Current"},
-      {id:`${key}-del`,  date:`${key}-27`,payee:"Deliveroo",  category:"Food & Dining", amount:-Math.round(2500+Math.random()*2000), account:"Current"},
+      // Bills hit 1st-2nd
+      {id:`${key}-rent`,   date:`${key}-01`, payee:"Foxtons Estates",    category:"Rent",            amount:-125000, account:"Joint Current", isIncome:false},
+      {id:`${key}-ct`,     date:`${key}-01`, payee:"Southwark Council",  category:"Council Tax",     amount:-16500,  account:"Joint Current"},
+      {id:`${key}-ins`,    date:`${key}-02`, payee:"Aviva Home Ins",     category:"Insurance",       amount:-3200,   account:"Joint Current"},
+      // Salary lands on the last working day — simulate as 28th
+      {id:`${key}-sal`,    date:`${key}-28`, payee:"Employer",           category:"Income",          amount:income,  account:"Joint Current", isIncome:true},
+      // Direct debits — energy, water
+      {id:`${key}-enrg`,   date:`${key}-03`, payee:"Octopus Energy",     category:"Energy & Water",  amount:-(isWinter ? 18500 : 9500) + Math.round((Math.random()-.5)*2000), account:"Joint Current"},
+      {id:`${key}-water`,  date:`${key}-03`, payee:"Thames Water",       category:"Energy & Water",  amount:-4200,   account:"Joint Current"},
+      // Subscriptions
+      {id:`${key}-nf`,     date:`${key}-05`, payee:"Netflix",            category:"Subscriptions",   amount:-1799,   account:"Joint Current"},
+      {id:`${key}-spot`,   date:`${key}-05`, payee:"Spotify Family",     category:"Subscriptions",   amount:-1799,   account:"Joint Current"},
+      {id:`${key}-gym`,    date:`${key}-06`, payee:"PureGym",            category:"Subscriptions",   amount:-2499,   account:"Joint Current"},
+      {id:`${key}-prime`,  date:`${key}-07`, payee:"Amazon Prime",       category:"Subscriptions",   amount:-899,    account:"Joint Current"},
+      // Groceries — weekly shops
+      {id:`${key}-g1`,     date:`${key}-03`, payee:"Sainsbury's",        category:"Groceries",       amount:-Math.round(6500+Math.random()*2500), account:"Joint Current"},
+      {id:`${key}-g2`,     date:`${key}-10`, payee:"Sainsbury's",        category:"Groceries",       amount:-Math.round(5800+Math.random()*2200), account:"Joint Current"},
+      {id:`${key}-g3`,     date:`${key}-17`, payee:"Sainsbury's",        category:"Groceries",       amount:-Math.round(6200+Math.random()*2000), account:"Joint Current"},
+      {id:`${key}-g4`,     date:`${key}-24`, payee:"Lidl",               category:"Groceries",       amount:-Math.round(3500+Math.random()*1500), account:"Joint Current"},
+      // Transport
+      {id:`${key}-tfl`,    date:`${key}-01`, payee:"TfL Contactless",    category:"Transport",       amount:-Math.round(7500+Math.random()*3000), account:"Joint Current"},
+      {id:`${key}-fuel`,   date:`${key}-12`, payee:"Shell",              category:"Transport",       amount:-Math.round(5500+Math.random()*2000), account:"Joint Current"},
+      // Eating out — varies by season
+      {id:`${key}-rest1`,  date:`${key}-08`, payee:"Dishoom",            category:"Eating Out",      amount:-Math.round(3500+(isSummer?2000:0)+Math.random()*2500), account:"Joint Current"},
+      {id:`${key}-cafe`,   date:`${key}-15`, payee:"Pret A Manger",      category:"Eating Out",      amount:-Math.round(1800+Math.random()*1200), account:"Joint Current"},
+      {id:`${key}-deliv`,  date:`${key}-20`, payee:"Deliveroo",          category:"Eating Out",      amount:-Math.round(2200+Math.random()*1800), account:"Joint Current"},
+      // Personal care
+      {id:`${key}-hair`,   date:`${key}-16`, payee:"Supercuts",          category:"Personal Care",   amount:-Math.round(1500+Math.random()*1500), account:"Joint Current"},
+      {id:`${key}-pharm`,  date:`${key}-19`, payee:"Boots",              category:"Personal Care",   amount:-Math.round(800+Math.random()*1200),  account:"Joint Current"},
+      // Entertainment
+      {id:`${key}-ent`,    date:`${key}-21`, payee:"Odeon",              category:"Entertainment",   amount:-(isSummer ? Math.round(2000+Math.random()*3000) : Math.round(500+Math.random()*1500)), account:"Joint Current"},
+      // Clothing — occasional
+      ...(Math.random() > 0.5 ? [{id:`${key}-clo`, date:`${key}-23`, payee:"ASOS",  category:"Clothing",  amount:-Math.round(3500+Math.random()*6500), account:"Joint Current"}] : []),
+      // Savings transfer on payday
+      {id:`${key}-sav`,    date:`${key}-28`, payee:"ISA Transfer",       category:"Savings",         amount:-30000,  account:"Joint Current"},
+      {id:`${key}-savr`,   date:`${key}-28`, payee:"ISA Transfer",       category:"Savings",         amount:30000,   account:"Easy Access ISA", isIncome:false},
     ];
+
     const catMap: Record<string,number> = {};
-    txs.forEach(tx=>{ catMap[tx.category]=(catMap[tx.category]||0)+tx.amount; });
-    const curNet = txs.filter(t=>t.account==="Current").reduce((a,t)=>a+t.amount,0);
-    const ccNet  = txs.filter(t=>t.account==="Credit Card").reduce((a,t)=>a+t.amount,0);
-    const prev = {cur:curBal,cc:ccBal};
-    curBal+=curNet; ccBal+=ccNet;
-    months.push({ month:key, income, expenses, net:income-expenses,
-      startBalance:prev.cur+prev.cc, endBalance:curBal+ccBal,
-      categories:catMap, transactions:txs });
+    txs.forEach(tx => { catMap[tx.category] = (catMap[tx.category] || 0) + tx.amount; });
+
+    const expenses = txs.filter(t => t.amount < 0 && !t.isIncome && t.account === "Joint Current")
+      .reduce((a, t) => a + Math.abs(t.amount), 0);
+
+    const curNet = txs.filter(t => t.account === "Joint Current").reduce((a, t) => a + t.amount, 0);
+    const savNet = txs.filter(t => t.account === "Easy Access ISA").reduce((a, t) => a + t.amount, 0);
+    const prevCur = curBal, prevSav = savBal;
+    curBal += curNet; savBal += savNet;
+
+    months.push({
+      month: key, income, expenses, net: income - expenses,
+      startBalance: prevCur + prevSav,
+      endBalance:   curBal  + savBal,
+      categories: catMap, transactions: txs,
+    });
   }
 
   return {
-    months, categories:cats, incomeCategories:["Income"],
-    categoryGroups:[], catGroupMap:{}, catIdMap:{},
-    accountObjects:acctObjs, accounts:acctObjs.map(a=>a.name),
-    txsByAccount:{"demo-current":{},"demo-cc":{}},
-    startBalances:{"demo-current":150000,"demo-cc":0},
-    accountMonthBals:{}, syncId:"demo",
+    months, categories: cats, incomeCategories: ["Income"],
+    categoryGroups: groups.map((g, i) => ({ id: `g${i}`, name: g, is_income: false, categories: [] })),
+    catGroupMap, catIdMap: {},
+    accountObjects: acctObjs, accounts: acctObjs.map(a => a.name),
+    txsByAccount: { "demo-current": {}, "demo-savings": {} },
+    startBalances: { "demo-current": 340000, "demo-savings": 620000 },
+    accountMonthBals: {}, syncId: "demo",
   };
 }
 
@@ -157,11 +199,17 @@ export function useLoadData(config: Config | null) {
         ]);
         if (catR.ok) {
           const j = await catR.json();
-          (j.data??j??[]).forEach((c:any)=>{ catMap[c.id]=c.name; if(c.is_income)incomeCatIds.add(c.id); });
+          (j.data??j??[]).forEach((c:any)=>{ 
+            if (c.hidden) return; // skip hidden categories
+            catMap[c.id]=c.name; 
+            if(c.is_income)incomeCatIds.add(c.id); 
+          });
         }
         if (grpR.ok) {
           const j = await grpR.json();
-          categoryGroups = (j.data??j??[]).filter((g:any)=>!g.hidden);
+          categoryGroups = (j.data??j??[])
+            .filter((g:any)=>!g.hidden)
+            .map((g:any)=>({...g, categories:(g.categories||[]).filter((c:any)=>!c.hidden)}));
           categoryGroups.forEach((g:any)=>{ if(g.is_income)(g.categories||[]).forEach((c:any)=>incomeCatIds.add(c.id)); });
         }
         updateLast("ok",`${Object.keys(catMap).length} categories · ${categoryGroups.length} groups`);

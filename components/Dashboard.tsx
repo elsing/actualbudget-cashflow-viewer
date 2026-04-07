@@ -8,6 +8,7 @@ import MonthlyFlowTab  from "./tabs/MonthlyFlowTab";
 import ScenariosTab    from "./tabs/ScenariosTab";
 import { OverviewTab, CategoriesTab } from "./tabs/OverviewTab";
 import CalibrationTab  from "./tabs/CalibrationTab";
+import SettingsTab     from "./tabs/SettingsTab";
 import AITab           from "./tabs/AITab";
 import type { UiState, AppState } from "@/types";
 
@@ -33,6 +34,7 @@ const DEFAULT_UI: UiState = {
   projStartBal:      null,
   projIncomeDay:     null,
   projDayOverrides:  {},
+  settledDay:        5,
 };
 
 interface Config {
@@ -146,7 +148,6 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
     {id:"scenarios", label:"Scenarios"},
     {id:"overview",  label:"Overview"},
     {id:"cats",      label:"Categories"},
-    {id:"cal",       label:"Calibration"},
     {id:"ai",        label:"AI Analysis"},
   ];
 
@@ -186,16 +187,25 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
         </div>
       </div>
 
-      <div data-nav style={{borderBottom:`1px solid ${C.border}`,padding:"0 28px",display:"flex",overflowX:"auto"}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setUi({tab:t.id})} style={{
-            background:"none",border:"none",
-            borderBottom:`2px solid ${tab===t.id?C.amber:"transparent"}`,
-            color:tab===t.id?C.amber:C.textDim,
-            padding:"12px 18px",fontSize:11,letterSpacing:2,
-            cursor:"pointer",fontFamily:FONT,textTransform:"uppercase",whiteSpace:"nowrap",
-          }}>{t.label}</button>
-        ))}
+      <div data-nav style={{borderBottom:`1px solid ${C.border}`,padding:"0 28px",display:"flex",alignItems:"stretch",overflowX:"auto"}}>
+        <div style={{display:"flex",flex:1,overflowX:"auto"}}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setUi({tab:t.id})} style={{
+              background:"none",border:"none",
+              borderBottom:`2px solid ${tab===t.id?C.amber:"transparent"}`,
+              color:tab===t.id?C.amber:C.textDim,
+              padding:"12px 18px",fontSize:11,letterSpacing:2,
+              cursor:"pointer",fontFamily:FONT,textTransform:"uppercase",whiteSpace:"nowrap",
+            }}>{t.label}</button>
+          ))}
+        </div>
+        <button onClick={()=>setUi({tab:"settings"})} title="Settings"
+          style={{background:"none",border:"none",borderLeft:`1px solid ${C.border}`,
+            borderBottom:`2px solid ${tab==="settings"?C.textDim:"transparent"}`,
+            padding:"12px 16px",cursor:"pointer",fontSize:16,
+            color:tab==="settings"?C.text:C.muted,flexShrink:0}}>
+          ⚙
+        </button>
       </div>
 
       <div data-content style={{padding:"24px 28px"}}>
@@ -210,8 +220,9 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
           uiState={uiState} setUi={setUi}/>}
         {tab==="overview"  && <OverviewTab     data={data} uiState={uiState} setUi={setUi}/>}
         {tab==="cats"      && <CategoriesTab   data={data} uiState={uiState} setUi={setUi}/>}
-        {tab==="cal"       && <CalibrationTab  data={data} reconciliations={reconciliations}
-          onReconciliationsChange={(r: AppState['reconciliations'])=>update({reconciliations:r})}/>}
+        {tab==="settings"  && <SettingsTab      data={data} reconciliations={reconciliations}
+          onReconciliationsChange={(r: AppState['reconciliations'])=>update({reconciliations:r})}
+          uiState={uiState} setUi={setUi}/>}
         {tab==="ai"        && <AITab           data={data} markers={markers} uiState={uiState} setUi={setUi}/>}
       </div>
     </div>

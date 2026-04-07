@@ -47,24 +47,27 @@ export default function ConnectionPanel({ onConnect }: Props) {
     // If it 401s, stay on the password step.
     if (s.budgetId) {
       const probePw = sessionStorage.getItem("cf-pw") ?? "";
-      fetch("/api/actual/v1/budgets", { headers: probePw ? { "x-dashboard-password": probePw } : {} }).then(async r => {
+      const probeHeaders: Record<string, string> = {};
+      if (probePw) probeHeaders["x-dashboard-password"] = probePw;
+      fetch("/api/actual/v1/budgets", { headers: probeHeaders }).then(async r => {
         if (r.ok) {
-          const d = await r.json();
-          const all = d.data??d??[];
-          const seen = new Set<string>();
-          const unique = all.filter((b:any) => { if(seen.has(b.name))return false; seen.add(b.name); return true; });
-          setBudgets(unique);
-          // Skip password, go straight to accounts since we already have a saved budgetId
-          setStep("accounts");
-          // Fetch accounts too
-          fetch(`/api/actual/v1/budgets/${s.budgetId}/accounts`).then(async ar => {
+          // Fetch accounts with the same password header
+          fetch(`/api/actual/v1/budgets/${s.budgetId}/accounts`, { headers: probeHeaders }).then(async ar => {
             if (!ar.ok) return;
             const aj = await ar.json();
             const all2 = aj.data??aj??[];
             const seen2 = new Set<string>();
             const unique2 = all2.filter((a:any)=>{ if(!a.id||seen2.has(a.id))return false; seen2.add(a.id); return true; });
             setAccounts(unique2);
-            setSelAccIds(s.accountIds?.length ? s.accountIds : unique2.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id));
+            const restoredIds = s.accountIds?.length ? s.accountIds : unique2.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id);
+            setSelAccIds(restoredIds);
+            // Auto-connect — everything is restored, no need for user interaction
+            onConnect({
+              budgetId: s.budgetId,
+              accountIds: restoredIds,
+              typeOverrides: s.typeOverrides || {},
+              password: probePw || undefined,
+            });
           });
         }
         // If 401 or error, stay on password step — user needs to authenticate

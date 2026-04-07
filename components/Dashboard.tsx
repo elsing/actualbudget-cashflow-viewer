@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C, FONT, SK } from "@/lib/constants";
 import { sSet, sGet, resetStateCache } from "@/lib/helpers";
 import { useLoadData } from "@/hooks/useLoadData";
@@ -75,10 +75,15 @@ function LoadingScreen({ loadLog, demo }: { loadLog:{text:string;status:string;d
 
 // ── Inner dashboard ───────────────────────────────────────────────────────────
 function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:()=>void }) {
-  const { loadLog, appState, setAppState, fatal } = useLoadData(config);
+  const { loadLog, appState, setAppState, fatal, dataSavedAt } = useLoadData(config);
   const [serverOk,  setServerOk]  = useState<boolean|null>(null);
   const [uiState,   setUiStateRaw] = useState<UiState>(DEFAULT_UI);
   const [uiLoaded,  setUiLoaded]  = useState(false);
+  // loadedAt is set to the DB timestamp of the data we loaded.
+  // Any session that loaded the same saved state has the same loadedAt.
+  // A session that makes changes and saves will have a newer _savedAt in the DB,
+  // which will block older sessions from overwriting it.
+  const loadedAt = useRef<number>(0);
 
   const setUi = (patch: Partial<UiState>) => setUiStateRaw(s => {
     const next = {...s, ...patch};
@@ -97,11 +102,21 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
     });
   }, []);
 
+  // Once dataSavedAt is known (from the loaded DB record), set loadedAt.
+  useEffect(() => {
+    if (!loadedAt.current) loadedAt.current = dataSavedAt || Date.now();
+  }, [dataSavedAt]);
+
   useEffect(() => {
     if (!appState) return;
     const t = setTimeout(() => {
-      sSet(SK.sc,   { scenarios: appState.scenarios, groups: appState.groups });
-      sSet(SK.flow, { markers: appState.markers });
+      const now = Date.now();
+      // Pass loadedAt to sSet — the server rejects the write if another session
+      // has saved more recently (optimistic concurrency, returns 409 if stale).
+      sSet(SK.sc,   { scenarios: appState.scenarios, groups: appState.groups, _savedAt: now }, loadedAt.current);
+      sSet(SK.flow, { markers: appState.markers, _savedAt: now }, loadedAt.current);
+      // Update loadedAt so subsequent saves from this session are accepted
+      loadedAt.current = now;
     }, 800);
     return () => clearTimeout(t);
   }, [appState?.scenarios, appState?.groups, appState?.markers]);

@@ -19,6 +19,28 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   try {
     const { budgetId, key } = await params;
     const body = await req.json();
+
+    // Optimistic concurrency: if the client sends an `_loadedAt` timestamp,
+    // only apply the write if the DB record's `_savedAt` matches.
+    // This prevents an old session from overwriting a newer session's changes.
+    if (typeof body._loadedAt === "number") {
+      const existing = dbGetOne(budgetId, key);
+      if (existing !== null) {
+        try {
+          const parsed = JSON.parse(existing) as Record<string, unknown>;
+          const dbSavedAt = typeof parsed._savedAt === "number" ? parsed._savedAt : 0;
+          if (dbSavedAt > body._loadedAt) {
+            return NextResponse.json(
+              { ok: false, conflict: true, dbSavedAt },
+              { status: 409 }
+            );
+          }
+        } catch {}
+      }
+      // Strip _loadedAt from what gets stored — it's only a concurrency token
+      delete body._loadedAt;
+    }
+
     dbUpsert(budgetId, key, JSON.stringify(body));
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {

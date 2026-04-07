@@ -72,7 +72,7 @@ export async function sGet(k: string): Promise<unknown> {
   try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; }
 }
 
-export async function sSet(k: string, v: unknown): Promise<void> {
+export async function sSet(k: string, v: unknown, loadedAt?: number): Promise<void> {
   // 1. Write localStorage immediately — never loses data
   try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
 
@@ -82,10 +82,11 @@ export async function sSet(k: string, v: unknown): Promise<void> {
   // 3. Sync to server in background — fire and forget
   const budgetId = getBudgetId();
   try {
+    const payload = loadedAt != null ? { ...(v as object), _loadedAt: loadedAt } : v;
     fetch(`/api/state/${budgetId}/${k}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(v),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(5000),
     }).catch(() => {
       // Server write failed — localStorage backup already has it, no action needed

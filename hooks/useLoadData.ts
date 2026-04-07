@@ -80,9 +80,10 @@ interface Config {
 interface LoadEntry { text: string; status: "ok"|"error"|"warn"|"pending"; detail?: string; }
 
 export function useLoadData(config: Config | null) {
-  const [loadLog,  setLoadLog]  = useState<LoadEntry[]>([]);
-  const [appState, setAppState] = useState<AppState | null>(null);
-  const [fatal,    setFatal]    = useState<string | null>(null);
+  const [loadLog,     setLoadLog]     = useState<LoadEntry[]>([]);
+  const [appState,    setAppState]    = useState<AppState | null>(null);
+  const [fatal,       setFatal]       = useState<string | null>(null);
+  const [dataSavedAt, setDataSavedAt] = useState<number>(0);
 
   const appendLog  = (text: string, status: LoadEntry["status"] = "ok", detail = "") =>
     setLoadLog(l => [...l, {text,status,detail}]);
@@ -241,6 +242,8 @@ export function useLoadData(config: Config | null) {
       appendLog("Computing balances…","pending");
       const [sc,fl,cal] = await Promise.all([sGet(SK.sc),sGet(SK.flow),sGet(SK.cal)]) as any[];
       const reconciliations = cal?.reconciliations || {};
+      // Store the timestamp this data was saved — Dashboard uses it to detect stale writes
+      const dataSavedAt: number = sc?._savedAt ?? 0;
 
       const accountMonthBals: Record<string,Record<string,{start:number;end:number;net:number;calcEnd:number}>> = {};
       for (const acct of openAccounts) {
@@ -293,17 +296,20 @@ export function useLoadData(config: Config | null) {
 
       appendLog("Ready","ok");
       await new Promise(r=>setTimeout(r,350));
-      if (!cancelled) setAppState({
-        data: rawData,
-        scenarios: sc?.scenarios?.length>0 ? sc.scenarios : mkScenarios(rawData),
-        groups:    sc?.groups || DEFAULT_GROUPS,
-        markers:   fl?.markers || {},
-        reconciliations,
-      });
+      if (!cancelled) {
+        setAppState({
+          data: rawData,
+          scenarios: sc?.scenarios?.length>0 ? sc.scenarios : mkScenarios(rawData),
+          groups:    sc?.groups || DEFAULT_GROUPS,
+          markers:   fl?.markers || {},
+          reconciliations,
+        });
+        setDataSavedAt(dataSavedAt);
+      }
     })();
 
     return () => { cancelled = true; };
   }, [config]);
 
-  return { loadLog, appState, setAppState, fatal };
+  return { loadLog, appState, setAppState, fatal, dataSavedAt };
 }

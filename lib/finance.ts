@@ -139,4 +139,12 @@ export interface Scenario {
   color: string;
   income: ScenarioIncome;
   rows: ScenarioRow[];
+  linkedTo?: string;
+}
+
+/** Returns the effective rows for a scenario, following linkedTo if set. */
+export function resolveScenarioRows(scenario: Scenario, allScenarios: Scenario[]): ScenarioRow[] {
+  if (!scenario.linkedTo) return scenario.rows;
+  const base = allScenarios.find(s => s.id === scenario.linkedTo);
+  return base ? base.rows : scenario.rows;
 }

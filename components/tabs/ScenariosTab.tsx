@@ -4,7 +4,7 @@ import type { Scenario, ScenarioIncome, ScenarioRow } from "@/lib/finance";
 import { useState } from "react";
 import { C, FONT, CAT_PALETTE, PRESET_COLORS } from "@/lib/constants";
 import { fmt, fmtR, pc, uid, completeMonths } from "@/lib/helpers";
-import { resolveIncome, resolveRow, liveAvg, liveLastCompleteMonth, liveIncome } from "@/lib/finance";
+import { resolveIncome, resolveRow, resolveScenarioRows, liveAvg, liveLastCompleteMonth, liveIncome } from "@/lib/finance";
 import { Chip, ColorSwatch, CategoryChips } from "@/components/ui";
 import type { Transaction } from "@/types";
 
@@ -290,21 +290,35 @@ function RowEditor({ row, income, data, onChange, onDelete, allCats, groups }: {
 }
 
 // ── Scenario editor ────────────────────────────────────────────────────────────
-function ScenarioEditor({ scenario, data, onChange, groups, onGroupsChange }: {
+function ScenarioEditor({ scenario, data, onChange, groups, onGroupsChange, allScenarios, onScenariosChange }: {
   scenario: Scenario; data: AppData;
   onChange: (s: Scenario) => void;
   groups: Group[]; onGroupsChange: (g: Group[]) => void;
+  allScenarios: Scenario[]; onScenariosChange: (s: Scenario[]) => void;
 }) {
   const [showGroups, setShowGroups] = useState(false);
-  const incomeAmt = resolveIncome(scenario.income, data);
+  const isLinked   = !!scenario.linkedTo;
+  const baseScen   = isLinked ? allScenarios.find(s => s.id === scenario.linkedTo) : null;
+  const effectiveRows = resolveScenarioRows(scenario, allScenarios);
+  const incomeAmt  = resolveIncome(scenario.income, data);
   const groupRows: Record<string, ScenarioRow[]> = {};
-  scenario.rows.forEach(r => { if (!groupRows[r.group]) groupRows[r.group] = []; groupRows[r.group].push(r); });
-  const totalOut  = scenario.rows.filter(r => r.enabled).reduce((a, r) => a + resolveRow(r, incomeAmt, data), 0);
-  const remaining = incomeAmt - totalOut;
+  effectiveRows.forEach(r => { if (!groupRows[r.group]) groupRows[r.group] = []; groupRows[r.group].push(r); });
+  const totalOut   = effectiveRows.filter(r => r.enabled).reduce((a, r) => a + resolveRow(r, incomeAmt, data), 0);
+  const remaining  = incomeAmt - totalOut;
 
   return (
     <div data-scenario-editor style={{ display: "flex", flexDirection: "column", maxWidth: 900 }}>
       <IncomeEditor income={scenario.income} data={data} onChange={inc => onChange({ ...scenario, income: inc })} />
+      {/* Linked banner */}
+      {isLinked && baseScen && (
+        <div style={{ background: `${C.teal}11`, border: `1px solid ${C.teal}33`, borderTop: "none", padding: "8px 22px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: C.teal, fontSize: 11 }}>🔗 Rows linked from <strong>{baseScen.name}</strong> — edit rows there to affect this scenario</span>
+          <button onClick={() => onChange({ ...scenario, linkedTo: undefined, rows: [...effectiveRows] })}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 10px", color: C.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT }}>
+            unlink
+          </button>
+        </div>
+      )}
       <div style={{ background: C.elevated, borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, padding: "6px 22px", display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ flex: 1, height: 1, background: C.border }} />
         <div style={{ color: C.textDim, fontSize: 10, letterSpacing: 2 }}>▼ MONEY OUT</div>
@@ -335,19 +349,29 @@ function ScenarioEditor({ scenario, data, onChange, groups, onGroupsChange }: {
               </div>
               {rows.length === 0 && <div style={{ color: C.muted, fontSize: 11, padding: "4px 0" }}>No rows in this group.</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {rows.map(row => (
-                  <RowEditor key={row.id} row={row} income={incomeAmt} data={data} allCats={data.categories} groups={groups}
-                    onChange={u => onChange({ ...scenario, rows: scenario.rows.map(r => r.id === row.id ? u : r) })}
-                    onDelete={() => onChange({ ...scenario, rows: scenario.rows.filter(r => r.id !== row.id) })} />
-                ))}
+                {rows.map(row => isLinked
+                  ? (
+                    <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: C.elevated, borderRadius: 7, border: `1px solid ${C.border}`, opacity: 0.75 }}>
+                      <div style={{ flex: 1, color: row.enabled ? C.text : C.muted, fontSize: 12 }}>{row.name}</div>
+                      <div style={{ color: C.muted, fontSize: 10 }}>{row.type}</div>
+                      <div style={{ color: row.enabled ? C.red : C.muted, fontSize: 12, fontWeight: 700 }}>{row.enabled ? fmt(-resolveRow(row, incomeAmt, data)) : "—"}</div>
+                    </div>
+                  ) : (
+                    <RowEditor key={row.id} row={row} income={incomeAmt} data={data} allCats={data.categories} groups={groups}
+                      onChange={u => onChange({ ...scenario, rows: scenario.rows.map(r => r.id === row.id ? u : r) })}
+                      onDelete={() => onChange({ ...scenario, rows: scenario.rows.filter(r => r.id !== row.id) })} />
+                  )
+                )}
               </div>
             </div>
           );
         })}
-        <div style={{ padding: "14px 0" }}>
-          <button onClick={() => onChange({ ...scenario, rows: [...scenario.rows, { id: uid(), group: groups[0]?.id || "g1", name: "New item", type: "fixed", amount: 10000, pct: 5, liveCategories: [], enabled: true }] })}
-            style={{ width: "100%", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 7, padding: "9px 0", color: C.textDim, fontSize: 12, cursor: "pointer", fontFamily: FONT }}>+ ADD ROW</button>
-        </div>
+        {!isLinked && (
+          <div style={{ padding: "14px 0" }}>
+            <button onClick={() => onChange({ ...scenario, rows: [...scenario.rows, { id: uid(), group: groups[0]?.id || "g1", name: "New item", type: "fixed", amount: 10000, pct: 5, liveCategories: [], enabled: true }] })}
+              style={{ width: "100%", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 7, padding: "9px 0", color: C.textDim, fontSize: 12, cursor: "pointer", fontFamily: FONT }}>+ ADD ROW</button>
+          </div>
+        )}
       </div>
 
       <div style={{ background: C.elevated, border: `1px solid ${C.border}`, borderTop: `1px solid ${C.amberMid}`, borderRadius: "0 0 10px 10px", padding: 20 }}>
@@ -382,8 +406,9 @@ function CompareView({ scenarios, data, groups }: { scenarios: Scenario[]; data:
   const [numCols, setNumCols] = useState(Math.min(2, scenarios.length));
   const cols = ids.slice(0, numCols).map(id => scenarios.find(s => s.id === id) || scenarios[0]).filter(Boolean);
   const incs = cols.map(s => resolveIncome(s.income, data));
-  const rems = cols.map((s, i) => incs[i] - s.rows.filter(r => r.enabled).reduce((a, r) => a + resolveRow(r, incs[i], data), 0));
-  const allRows = [...new Set(cols.flatMap(s => s.rows.map(r => r.name)))];
+  const resolvedRows = cols.map(s => resolveScenarioRows(s, scenarios));
+  const rems = cols.map((s, i) => incs[i] - resolvedRows[i].filter(r => r.enabled).reduce((a, r) => a + resolveRow(r, incs[i], data), 0));
+  const allRows = [...new Set(resolvedRows.flatMap(rows => rows.map(r => r.name)))];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
@@ -409,7 +434,7 @@ function CompareView({ scenarios, data, groups }: { scenarios: Scenario[]; data:
       </div>
       {allRows.map(name => {
         const rowVals = cols.map((s, ci) => {
-          const r = s.rows.find(r => r.name === name);
+          const r = resolvedRows[ci].find(r => r.name === name);
           return r ? resolveRow(r, incs[ci], data) : null;
         });
         return (
@@ -477,7 +502,8 @@ function ScenarioProjection({ scenarios, data, uiState, setUi }: {
     day: incomeDay, label: "Income", amount: incomeAmt, type: "income", rowId: "__income__", rowType: "income",
   }];
 
-  (scenario?.rows || []).filter(r => r.enabled).forEach(row => {
+  const projRows = scenario ? resolveScenarioRows(scenario, scenarios) : [];
+  projRows.filter(r => r.enabled).forEach(row => {
     const amt = resolveRow(row, incomeAmt, data);
     if (amt <= 0) return;
     let day: number;
@@ -553,11 +579,11 @@ function ScenarioProjection({ scenarios, data, uiState, setUi }: {
       </div>
 
       {/* Day overrides */}
-      {scenario?.rows.filter(r => r.enabled).length > 0 && (
+      {projRows.filter(r => r.enabled).length > 0 && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20 }}>
           <div style={{ color: C.textDim, fontSize: 10, letterSpacing: 2, marginBottom: 12 }}>DAY OF MONTH PER ITEM</div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {(scenario?.rows || []).filter(r => r.enabled).map(row => {
+            {projRows.filter(r => r.enabled).map(row => {
               const isFixed = row.type === "fixed" || row.type === "percent";
               const auto = isFixed ? null : row.type === "last"
                 ? (() => { const tx = (lastComplete?.transactions || []).filter(t => (row.liveCategories || []).includes(t.category) && t.amount < 0); return tx.length ? Math.max(...tx.map(t => parseInt(t.date?.split("-")[2] || "0"))) : null; })()
@@ -671,6 +697,14 @@ function ScenarioTabBar({ scenarios, activeId, setActiveId, view, setView, onSce
     const ns: Scenario = { ...src, id: uid(), name: src.name + " (copy)", rows: src.rows.map(r => ({ ...r, id: uid() })) };
     onScenariosChange([...scenarios, ns]); setActiveId(ns.id);
   };
+  const link = () => {
+    const src = scenarios.find(s => s.id === activeId) || scenarios[0];
+    // Don't allow linking an already-linked scenario — link to its base instead
+    const linkTarget = src.linkedTo ?? src.id;
+    const ns: Scenario = { ...src, id: uid(), name: src.name + " (linked)", rows: [], linkedTo: linkTarget,
+      color: PRESET_COLORS[(scenarios.length + 2) % PRESET_COLORS.length] };
+    onScenariosChange([...scenarios, ns]); setActiveId(ns.id);
+  };
   const add = () => {
     if (!newName.trim()) return;
     const src = scenarios.find(s => s.id === activeId) || scenarios[0];
@@ -710,6 +744,7 @@ function ScenarioTabBar({ scenarios, activeId, setActiveId, view, setView, onSce
       </div>
       <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", padding: "0 8px" }}>
         {view === "edit" && <button onClick={dup} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5, padding: "4px 10px", color: C.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT }}>duplicate</button>}
+        {view === "edit" && <button onClick={link} style={{ background: "transparent", border: `1px solid ${C.teal}55`, borderRadius: 5, padding: "4px 10px", color: C.teal, fontSize: 10, cursor: "pointer", fontFamily: FONT }} title="Create a new scenario with the same rows but independent income">🔗 linked copy</button>}
         {naming
           ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Scenario name" onKeyDown={e => e.key === "Enter" && add()} autoFocus
@@ -742,6 +777,7 @@ export default function ScenariosTab({ scenarios, groups, onScenariosChange, onG
       <ScenarioTabBar scenarios={scenarios} activeId={activeId} setActiveId={setActiveId} view={view} setView={setView} onScenariosChange={onScenariosChange} />
       {view === "edit" && (
         <ScenarioEditor scenario={active} data={data} groups={groups} onGroupsChange={onGroupsChange}
+          allScenarios={scenarios} onScenariosChange={onScenariosChange}
           onChange={u => onScenariosChange(scenarios.map(s => s.id === u.id ? u : s))} />
       )}
       {view === "compare" && <CompareView scenarios={scenarios} data={data} groups={groups} />}

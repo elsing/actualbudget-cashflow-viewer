@@ -5,7 +5,7 @@ import { useState } from "react";
 import { C, FONT, CAT_PALETTE, PRESET_COLORS } from "@/lib/constants";
 import { fmt, fmtR, pc, uid, completeMonths } from "@/lib/helpers";
 import { resolveIncome, resolveRow, liveAvg, liveLastCompleteMonth, liveIncome } from "@/lib/finance";
-import { Chip, ColorSwatch } from "@/components/ui";
+import { Chip, ColorSwatch, CategoryChips } from "@/components/ui";
 import type { Transaction } from "@/types";
 
 const ROW_TYPE_LABELS: Record<string, string> = {
@@ -99,12 +99,13 @@ function IncomeEditor({ income, onChange, data }: { income: ScenarioIncome; onCh
                 ))}
               </div>
               {incomeCats.length > 0
-                ? <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {incomeCats.map(cat => {
-                      const sel = selectedCats.includes(cat);
-                      return <button key={cat} onClick={() => toggleCat(cat)} style={{ fontFamily: FONT, fontSize: 10, padding: "4px 10px", borderRadius: 5, cursor: "pointer", border: `1px solid ${sel ? C.teal : C.border}`, background: sel ? `${C.teal}22` : "transparent", color: sel ? C.teal : C.textDim }}>{cat}</button>;
-                    })}
-                  </div>
+                ? <CategoryChips
+                    cats={incomeCats}
+                    activeCats={selectedCats}
+                    catGroupMap={data.catGroupMap || {}}
+                    small
+                    onToggle={toggleCat}
+                  />
                 : <div style={{ color: C.amber, fontSize: 11 }}>No income categories found — mark categories as income in Actual Budget first.</div>
               }
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
@@ -258,11 +259,17 @@ function RowEditor({ row, income, data, onChange, onDelete, allCats, groups }: {
             {" — "}Map to Actual categories (net spend: refunds cancel out purchases)
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {allCats.map((cat, i) => {
-              const sel = (row.liveCategories || []).includes(cat);
-              return <Chip key={cat} label={cat} color={CAT_PALETTE[i % CAT_PALETTE.length]} active={sel} small
-                onClick={() => { const n = sel ? (row.liveCategories || []).filter(c => c !== cat) : [...(row.liveCategories || []), cat]; onChange({ ...row, liveCategories: n }); }} />;
-            })}
+            <CategoryChips
+              cats={allCats}
+              activeCats={row.liveCategories || []}
+              catGroupMap={data.catGroupMap || {}}
+              small
+              onToggle={(cat: string) => {
+                const sel = (row.liveCategories || []).includes(cat);
+                const n = sel ? (row.liveCategories || []).filter(c => c !== cat) : [...(row.liveCategories || []), cat];
+                onChange({ ...row, liveCategories: n });
+              }}
+            />
           </div>
           {(row.liveCategories || []).length > 0 && (
             <div style={{ color: C.teal, fontSize: 11, marginTop: 8 }}>

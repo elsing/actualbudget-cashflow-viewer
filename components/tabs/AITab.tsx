@@ -4,7 +4,7 @@ import type { UiState, AppData, AppState } from "@/types";
 import { C, FONT, CAT_PALETTE, SK } from "@/lib/constants";
 import { fmt, sGet, sSet, completeMonths } from "@/lib/helpers";
 import { catSpend } from "@/lib/finance";
-import { Chip, RangeButtons } from "@/components/ui";
+import { Chip, RangeButtons, CategoryChips } from "@/components/ui";
 
 interface OllamaConfig {
   url?: string;
@@ -247,9 +247,8 @@ export default function AITab({ data, markers, uiState = {}, setUi = () => {} }:
               {selCats === null ? "deselect all" : "select all"}
             </button>
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {allCats.map((cat, i) => <Chip key={cat} label={cat} color={CAT_PALETTE[i % CAT_PALETTE.length]} active={activeCats.includes(cat)} onClick={() => toggleCat(cat)} />)}
-          </div>
+          <CategoryChips cats={allCats} activeCats={activeCats}
+            catGroupMap={data.catGroupMap || {}} onToggle={toggleCat} />
         </div>
       </div>
 

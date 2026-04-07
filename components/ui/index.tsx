@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { C, FONT, PRESET_COLORS } from "@/lib/constants";
+import { C, FONT, PRESET_COLORS, CAT_PALETTE } from "@/lib/constants";
 import { fmtM, fmtD, fmt } from "@/lib/helpers";
 import type { Month } from "@/types";
 
@@ -99,6 +99,52 @@ export function RangeButtons({ value, onChange, options, data }: RangeButtonsPro
           background:value===r?C.amber:"transparent",
           color:value===r?"#060e1a":C.textDim,
         }}>{r}mo</button>
+      ))}
+    </div>
+  );
+}
+
+// ── CategoryChips ─────────────────────────────────────────────────────────────
+// Renders category chips grouped by their Actual Budget group, with a small
+// group label between sections. Preserves the order from data.categories
+// (which already comes sorted by group from useLoadData).
+interface CategoryChipsProps {
+  cats: string[];
+  activeCats: string[];
+  catGroupMap: Record<string, string>;
+  onToggle: (cat: string) => void;
+  small?: boolean;
+}
+export function CategoryChips({ cats, activeCats, catGroupMap, onToggle, small }: CategoryChipsProps) {
+  // Build ordered groups, preserving the order cats appear in (group order from Actual)
+  const groups: { name: string; cats: string[] }[] = [];
+  const seen = new Set<string>();
+  cats.forEach(cat => {
+    const group = catGroupMap[cat] || "Other";
+    if (!seen.has(group)) {
+      seen.add(group);
+      groups.push({ name: group, cats: [] });
+    }
+    groups[groups.length - 1].cats.push(cat);
+  });
+
+  // Assign palette colours by original index in cats array for consistency
+  const colorOf = (cat: string) => CAT_PALETTE[cats.indexOf(cat) % CAT_PALETTE.length];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {groups.map(g => (
+        <div key={g.name}>
+          <div style={{ color: C.muted, fontSize: 9, letterSpacing: 1.5, marginBottom: 5 }}>
+            {g.name.toUpperCase()}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {g.cats.map(cat => (
+              <Chip key={cat} label={cat} color={colorOf(cat)}
+                active={activeCats.includes(cat)} onClick={() => onToggle(cat)} small={small} />
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );

@@ -5,7 +5,7 @@ import type { UiState, AppData, Month } from "@/types";
 import { C, FONT, CAT_PALETTE } from "@/lib/constants";
 import { fmt, fmtM, completeMonths } from "@/lib/helpers";
 import { catSpend } from "@/lib/finance";
-import { Chip, ChartTip, RangeButtons } from "@/components/ui";
+import { Chip, ChartTip, RangeButtons, CategoryChips } from "@/components/ui";
 
 const yFmt = (v: number) => `£${Math.abs(v/100).toLocaleString("en-GB",{maximumFractionDigits:0})}`;
 
@@ -117,11 +117,8 @@ export function OverviewTab({ data, uiState = {}, setUi = () => {} }: TabProps) 
                 <div style={{ color: C.teal, fontSize: 10, letterSpacing: 2 }}>INCOME CATEGORIES</div>
                 <button onClick={() => setIncomeCats(null)} style={{ background: "transparent", border: "none", color: C.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT }}>reset</button>
               </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {allIncomeCats.map(cat => (
-                  <Chip key={cat} label={cat} color={C.teal} active={(activeIncCats ?? allIncomeCats).includes(cat)} small onClick={() => toggleIncomeCat(cat)} />
-                ))}
-              </div>
+              <CategoryChips cats={allIncomeCats} activeCats={activeIncCats ?? allIncomeCats}
+                catGroupMap={data.catGroupMap || {}} onToggle={toggleIncomeCat} small />
             </div>
           )}
           <div>
@@ -129,12 +126,8 @@ export function OverviewTab({ data, uiState = {}, setUi = () => {} }: TabProps) 
               <div style={{ color: C.red, fontSize: 10, letterSpacing: 2 }}>EXPENSE CATEGORIES</div>
               <button onClick={() => setSelCats(null)} style={{ background: "transparent", border: "none", color: C.textDim, fontSize: 10, cursor: "pointer", fontFamily: FONT }}>reset</button>
             </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {allCats.map((cat, i) => (
-                <Chip key={cat} label={cat} color={CAT_PALETTE[i % CAT_PALETTE.length]}
-                  active={activeCats.includes(cat)} onClick={() => toggleCat(cat)} small />
-              ))}
-            </div>
+            <CategoryChips cats={allCats} activeCats={activeCats}
+              catGroupMap={data.catGroupMap || {}} onToggle={toggleCat} small />
           </div>
         </div>
       )}

@@ -16,7 +16,7 @@ on:
 jobs:
   build-push:
     name: "Build and Push to GHCR"
-    runs-on: [docker, self-hosted]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code

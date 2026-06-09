@@ -17,61 +17,79 @@ export default function ConnectionPanel({ onConnect }: Props) {
   const [busy,  setBusy]  = useState(false);
   const [err,   setErr]   = useState("");
 
-  // Load saved config and type overrides on mount (client-only)
   useEffect(() => {
-    // Restore password from sessionStorage (survives reload, cleared on tab close)
     const savedPw = sessionStorage.getItem("cf-pw") ?? "";
     if (savedPw) setPassword(savedPw);
 
-    let s: Record<string,any> = {};
-    try {
-      s = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-      setSaved(s);
-      if (s.budgetId)       setBudgetId(s.budgetId);
-      if (s.typeOverrides)  setTypeOverrides(s.typeOverrides);
-    } catch {}
-
-    // Load type overrides from DB (synced across devices)
-    sGet(SK.conn).then((conn: any) => {
-      if (conn?.typeOverrides && Object.keys(conn.typeOverrides).length > 0) {
-        setTypeOverrides(conn.typeOverrides);
-        try {
-          const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
-          localStorage.setItem("cf-connection", JSON.stringify({...cur, typeOverrides:conn.typeOverrides}));
-        } catch {}
-      }
-    });
-
-    // If we have a saved connection, try fetching budgets without a password.
-    // If it succeeds (no CF_DASHBOARD_PASSWORD set), skip straight to budget/accounts.
-    // If it 401s, stay on the password step.
-    if (s.budgetId) {
+    // Helper: given a fully-resolved connection config, attempt to auto-connect
+    const autoConnect = (conn: Record<string,any>) => {
       const probePw = sessionStorage.getItem("cf-pw") ?? "";
       const probeHeaders: Record<string, string> = {};
       if (probePw) probeHeaders["x-dashboard-password"] = probePw;
       fetch("/api/actual/v1/budgets", { headers: probeHeaders }).then(async r => {
-        if (r.ok) {
-          // Fetch accounts with the same password header
-          fetch(`/api/actual/v1/budgets/${s.budgetId}/accounts`, { headers: probeHeaders }).then(async ar => {
-            if (!ar.ok) return;
-            const aj = await ar.json();
-            const all2 = aj.data??aj??[];
-            const seen2 = new Set<string>();
-            const unique2 = all2.filter((a:any)=>{ if(!a.id||seen2.has(a.id))return false; seen2.add(a.id); return true; });
-            setAccounts(unique2);
-            const restoredIds = s.accountIds?.length ? s.accountIds : unique2.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id);
-            setSelAccIds(restoredIds);
-            // Auto-connect — everything is restored, no need for user interaction
-            onConnect({
-              budgetId: s.budgetId,
-              accountIds: restoredIds,
-              typeOverrides: s.typeOverrides || {},
-              password: probePw || undefined,
-            });
+        if (!r.ok) return; // 401 — user must authenticate manually
+        fetch(`/api/actual/v1/budgets/${conn.budgetId}/accounts`, { headers: probeHeaders }).then(async ar => {
+          if (!ar.ok) return;
+          const aj = await ar.json();
+          const all2 = aj.data??aj??[];
+          const seen2 = new Set<string>();
+          const unique2 = all2.filter((a:any)=>{ if(!a.id||seen2.has(a.id))return false; seen2.add(a.id); return true; });
+          setAccounts(unique2);
+          const restoredIds = conn.accountIds?.length
+            ? conn.accountIds
+            : unique2.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id);
+          setSelAccIds(restoredIds);
+          onConnect({
+            budgetId: conn.budgetId,
+            accountIds: restoredIds,
+            typeOverrides: conn.typeOverrides || {},
+            password: probePw || undefined,
           });
-        }
-        // If 401 or error, stay on password step — user needs to authenticate
+        });
       }).catch(() => {});
+    };
+
+    // Helper: apply a resolved connection to local state + kick off auto-connect
+    const applyConnection = (conn: Record<string,any>) => {
+      setSaved(conn);
+      setBudgetId(conn.budgetId);
+      if (conn.typeOverrides) setTypeOverrides(conn.typeOverrides);
+      autoConnect(conn);
+    };
+
+    // Try localStorage first (fast path — already connected on this machine)
+    let s: Record<string,any> = {};
+    try {
+      s = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+    } catch {}
+
+    if (s.budgetId) {
+      // Known machine — apply immediately, then separately sync typeOverrides from DB
+      applyConnection(s);
+      sGet(SK.conn).then((conn: any) => {
+        if (conn?.typeOverrides && Object.keys(conn.typeOverrides).length > 0) {
+          setTypeOverrides(conn.typeOverrides);
+          try {
+            const cur = JSON.parse(localStorage.getItem("cf-connection")||"{}");
+            localStorage.setItem("cf-connection", JSON.stringify({...cur, typeOverrides: conn.typeOverrides}));
+          } catch {}
+        }
+      });
+    } else {
+      // Cold start — fetch the bootstrap record written to DB at connect time.
+      // This covers new machines and cleared localStorage without requiring the wizard.
+      fetch("/api/state/global/cf-connection")
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          const conn = j?.value;
+          if (!conn?.budgetId) return; // Genuinely first time — wizard is correct
+          // Warm localStorage so subsequent loads are instant
+          try { localStorage.setItem("cf-connection", JSON.stringify(conn)); } catch {}
+          applyConnection(conn);
+        })
+        .catch(() => {});
+      // No sGet(SK.conn) here — getBudgetId() would also cold-fetch and race;
+      // typeOverrides arrive via the bootstrap record above instead.
     }
   }, []);
 
@@ -84,11 +102,9 @@ export default function ConnectionPanel({ onConnect }: Props) {
     sSet(SK.conn, { typeOverrides: ovs });
   };
 
-  // Step 1: check password, then fetch budgets
   const checkPassword = async () => {
     setBusy(true); setErr("");
     try {
-      // Verify password against the server, then fetch budgets in same call
       const r = await fetch("/api/actual/v1/budgets", {
         headers: { "x-dashboard-password": password },
       });
@@ -100,7 +116,6 @@ export default function ConnectionPanel({ onConnect }: Props) {
       const seen = new Set<string>();
       const unique = all.filter((b:any) => { if(seen.has(b.name))return false; seen.add(b.name); return true; });
       setBudgets(unique);
-      // Save password in session for subsequent API calls
       sessionStorage.setItem("cf-pw", password);
       setStep("budget");
     } catch(e:any) { setErr(e.message); }
@@ -119,7 +134,6 @@ export default function ConnectionPanel({ onConnect }: Props) {
       const seen = new Set<string>();
       const unique = all.filter((a:any)=>{ if(!a.id||seen.has(a.id))return false; seen.add(a.id); return true; });
       setAccounts(unique);
-      // Restore saved account selection for this budget
       const savedIds = saved.budgetId===budgetId ? saved.accountIds : null;
       setSelAccIds(savedIds || unique.filter((a:any)=>!a.offbudget&&!a.closed).map((a:any)=>a.id));
       setStep("accounts");
@@ -133,7 +147,6 @@ export default function ConnectionPanel({ onConnect }: Props) {
   const connect = () => {
     const cfg = { budgetId, accountIds: selAccIds||[], typeOverrides, password };
     try { localStorage.setItem("cf-connection", JSON.stringify({ budgetId, accountIds: selAccIds||[], typeOverrides })); } catch {}
-    // Persist to DB so any new machine can bootstrap without re-connecting
     sSetConnection(budgetId, selAccIds || [], typeOverrides);
     onConnect(cfg);
   };
@@ -191,7 +204,6 @@ export default function ConnectionPanel({ onConnect }: Props) {
         <div style={{color:C.amber,fontSize:11,letterSpacing:3,marginBottom:6}}>◈ ACTUAL BUDGET</div>
         <div style={{color:C.text,fontSize:22,fontWeight:700,marginBottom:4}}>Cash Flow Dashboard</div>
 
-        {/* Step indicator */}
         <div style={{display:"flex",gap:16,marginBottom:24,marginTop:8}}>
           {steps.map(s=>(
             <div key={s.id} style={{fontSize:10,color:step===s.id?C.amber:C.muted,fontFamily:FONT,
@@ -201,33 +213,20 @@ export default function ConnectionPanel({ onConnect }: Props) {
           ))}
         </div>
 
-        {/* Step 1 — password */}
         {step==="password"&&<>
-          {/* Wrap in a form so password managers detect it correctly */}
           <form onSubmit={e=>{e.preventDefault();if(password)checkPassword();}} style={{marginBottom:18}}>
             <div style={{color:C.textDim,fontSize:10,letterSpacing:2,marginBottom:6}}>PASSWORD</div>
-            <input
-              type="password"
-              name="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={e=>setPassword(e.target.value)}
-              placeholder="Enter dashboard password"
-              autoFocus
-              style={{width:"100%",boxSizing:"border-box",background:C.bg,
-                border:`1px solid ${C.border}`,borderRadius:7,padding:"11px 14px",
-                color:C.text,fontSize:13,fontFamily:FONT,outline:"none"}}
-            />
+            <input type="password" name="password" autoComplete="current-password" value={password}
+              onChange={e=>setPassword(e.target.value)} placeholder="Enter dashboard password" autoFocus
+              style={{width:"100%",boxSizing:"border-box",background:C.bg,border:`1px solid ${C.border}`,
+                borderRadius:7,padding:"11px 14px",color:C.text,fontSize:13,fontFamily:FONT,outline:"none"}}/>
           </form>
           {err&&<div style={{color:C.red,fontSize:11,marginBottom:14,padding:"10px 14px",
             background:`${C.red}11`,borderRadius:6}}>{err}</div>}
           <button onClick={checkPassword} disabled={!password||busy}
-            style={{width:"100%",background:password?C.amber:"transparent",
-              color:password?"#060e1a":C.muted,
-              border:`1px solid ${password?C.amber:C.border}`,
-              borderRadius:7,padding:"13px 0",fontSize:13,fontWeight:700,
-              cursor:password&&!busy?"pointer":"default",fontFamily:FONT,marginBottom:10,
-              opacity:busy?0.7:1}}>
+            style={{width:"100%",background:password?C.amber:"transparent",color:password?"#060e1a":C.muted,
+              border:`1px solid ${password?C.amber:C.border}`,borderRadius:7,padding:"13px 0",fontSize:13,
+              fontWeight:700,cursor:password&&!busy?"pointer":"default",fontFamily:FONT,marginBottom:10,opacity:busy?0.7:1}}>
             {busy?"CONNECTING…":"SIGN IN →"}
           </button>
           <button onClick={()=>onConnect({demo:true})}
@@ -237,7 +236,6 @@ export default function ConnectionPanel({ onConnect }: Props) {
           </button>
         </>}
 
-        {/* Step 2 — budget */}
         {step==="budget"&&<>
           <div style={{color:C.textDim,fontSize:11,marginBottom:16}}>Select your budget:</div>
           <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
@@ -249,8 +247,7 @@ export default function ConnectionPanel({ onConnect }: Props) {
                   style={{padding:"12px 16px",background:sel?`${C.teal}15`:C.elevated,
                     border:`1px solid ${sel?C.teal:C.border}`,borderRadius:8,
                     cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:16,height:16,borderRadius:4,
-                    border:`2px solid ${sel?C.teal:C.muted}`,
+                  <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?C.teal:C.muted}`,
                     background:sel?C.teal:"transparent",flexShrink:0}}/>
                   <div style={{color:C.text,fontSize:13}}>{b.name}</div>
                 </div>
@@ -264,17 +261,14 @@ export default function ConnectionPanel({ onConnect }: Props) {
               style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,
                 padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
             <button onClick={fetchAccounts} disabled={!budgetId||busy}
-              style={{flex:2,background:budgetId?C.amber:"transparent",
-                color:budgetId?"#060e1a":C.muted,
-                border:`1px solid ${budgetId?C.amber:C.border}`,
-                borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,
-                cursor:budgetId&&!busy?"pointer":"default",fontFamily:FONT}}>
+              style={{flex:2,background:budgetId?C.amber:"transparent",color:budgetId?"#060e1a":C.muted,
+                border:`1px solid ${budgetId?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,
+                fontWeight:700,cursor:budgetId&&!busy?"pointer":"default",fontFamily:FONT}}>
               {busy?"LOADING…":"SELECT ACCOUNTS →"}
             </button>
           </div>
         </>}
 
-        {/* Step 3 — accounts */}
         {step==="accounts"&&<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div style={{color:C.textDim,fontSize:11}}>{selCount} account{selCount!==1?"s":""} selected</div>
@@ -283,9 +277,8 @@ export default function ConnectionPanel({ onConnect }: Props) {
                 <button key={l} onClick={()=>setSelAccIds(
                   l==="on-budget" ? onBudget.map(a=>a.id) :
                   l==="all open"  ? accounts.filter(a=>!a.closed).map(a=>a.id) : []
-                )} style={{background:"transparent",border:`1px solid ${C.border}`,
-                  borderRadius:5,padding:"3px 10px",color:C.textDim,fontSize:10,
-                  cursor:"pointer",fontFamily:FONT}}>{l}</button>
+                )} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,
+                  padding:"3px 10px",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>{l}</button>
               ))}
             </div>
           </div>
@@ -305,11 +298,9 @@ export default function ConnectionPanel({ onConnect }: Props) {
               style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,
                 padding:"11px 0",fontSize:12,color:C.textDim,cursor:"pointer",fontFamily:FONT}}>← back</button>
             <button onClick={connect} disabled={selCount===0}
-              style={{flex:2,background:selCount>0?C.amber:"transparent",
-                color:selCount>0?"#060e1a":C.muted,
-                border:`1px solid ${selCount>0?C.amber:C.border}`,
-                borderRadius:7,padding:"11px 0",fontSize:13,fontWeight:700,
-                cursor:selCount>0?"pointer":"default",fontFamily:FONT}}>
+              style={{flex:2,background:selCount>0?C.amber:"transparent",color:selCount>0?"#060e1a":C.muted,
+                border:`1px solid ${selCount>0?C.amber:C.border}`,borderRadius:7,padding:"11px 0",fontSize:13,
+                fontWeight:700,cursor:selCount>0?"pointer":"default",fontFamily:FONT}}>
               OPEN DASHBOARD →
             </button>
           </div>

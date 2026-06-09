@@ -39,10 +39,35 @@ export const currentMonthKey = () => {
 //
 // The /api/health endpoint tells the UI whether cross-device sync is active —
 // it is NOT a gate on whether state is saved. State is always saved locally.
+//
+// cf-connection bootstrap: on a fresh machine localStorage is empty, so we fall
+// back to /api/state/global/cf-connection (written at connect time) to recover
+// the budgetId before any state reads happen. This is what makes calibration and
+// all other DB-persisted state load correctly on new devices without re-connecting.
 
-function getBudgetId(): string {
-  try { return JSON.parse(localStorage.getItem("cf-connection")||"{}").budgetId || "demo"; }
-  catch { return "demo"; }
+async function getBudgetId(): Promise<string> {
+  // Fast path — already connected on this machine
+  try {
+    const id = JSON.parse(localStorage.getItem("cf-connection") || "{}").budgetId;
+    if (id) return id;
+  } catch {}
+  // Cold start — fetch from DB bootstrap record written at connect time
+  try {
+    const r = await fetch("/api/state/global/cf-connection", { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      const j = await r.json();
+      const id = j.value?.budgetId;
+      if (id) {
+        // Warm the localStorage cache so subsequent sync reads are instant
+        try {
+          const existing = JSON.parse(localStorage.getItem("cf-connection") || "{}");
+          localStorage.setItem("cf-connection", JSON.stringify({ ...j.value, ...existing }));
+        } catch {}
+        return id;
+      }
+    }
+  } catch {}
+  return "demo";
 }
 
 // Per-session cache of server state — avoids repeated fetches within a session
@@ -63,7 +88,7 @@ async function loadServerState(budgetId: string): Promise<Record<string,unknown>
 }
 
 export async function sGet(k: string): Promise<unknown> {
-  const budgetId = getBudgetId();
+  const budgetId = await getBudgetId();
   try {
     const state = await loadServerState(budgetId);
     if (state[k] !== undefined) return state[k];
@@ -80,7 +105,7 @@ export async function sSet(k: string, v: unknown, loadedAt?: number): Promise<vo
   if (_serverState) _serverState[k] = v;
 
   // 3. Sync to server in background — fire and forget
-  const budgetId = getBudgetId();
+  const budgetId = await getBudgetId();
   try {
     const payload = loadedAt != null ? { ...(v as object), _loadedAt: loadedAt } : v;
     fetch(`/api/state/${budgetId}/${k}`, {
@@ -90,6 +115,23 @@ export async function sSet(k: string, v: unknown, loadedAt?: number): Promise<vo
       signal: AbortSignal.timeout(5000),
     }).catch(() => {
       // Server write failed — localStorage backup already has it, no action needed
+    });
+  } catch {}
+}
+
+// Persist the connection config to the DB under a stable global key so any new
+// machine can bootstrap itself without going through the connection wizard again.
+export async function sSetConnection(
+  budgetId: string,
+  accountIds: string[],
+  typeOverrides: Record<string,string>
+): Promise<void> {
+  try {
+    await fetch("/api/state/global/cf-connection", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ budgetId, accountIds, typeOverrides }),
+      signal: AbortSignal.timeout(5000),
     });
   } catch {}
 }

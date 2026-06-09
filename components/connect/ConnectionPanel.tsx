@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { C, FONT, ACCT_TYPES, TYPE_COLOR, SK } from "@/lib/constants";
-import { sGet, sSet } from "@/lib/helpers";
+import { sGet, sSet, sSetConnection } from "@/lib/helpers";
 
 interface Props { onConnect: (cfg: any) => void; }
 
@@ -133,6 +133,8 @@ export default function ConnectionPanel({ onConnect }: Props) {
   const connect = () => {
     const cfg = { budgetId, accountIds: selAccIds||[], typeOverrides, password };
     try { localStorage.setItem("cf-connection", JSON.stringify({ budgetId, accountIds: selAccIds||[], typeOverrides })); } catch {}
+    // Persist to DB so any new machine can bootstrap without re-connecting
+    sSetConnection(budgetId, selAccIds || [], typeOverrides);
     onConnect(cfg);
   };
 

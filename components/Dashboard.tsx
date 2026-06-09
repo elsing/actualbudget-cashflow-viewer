@@ -81,10 +81,7 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
   const [serverOk,  setServerOk]  = useState<boolean|null>(null);
   const [uiState,   setUiStateRaw] = useState<UiState>(DEFAULT_UI);
   const [uiLoaded,  setUiLoaded]  = useState(false);
-  // loadedAt is set to the DB timestamp of the data we loaded.
-  // Any session that loaded the same saved state has the same loadedAt.
-  // A session that makes changes and saves will have a newer _savedAt in the DB,
-  // which will block older sessions from overwriting it.
+  const [masked,    setMasked]    = useState(false);
   const loadedAt = useRef<number>(0);
 
   const setUi = (patch: Partial<UiState>) => setUiStateRaw(s => {
@@ -104,7 +101,6 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
     });
   }, []);
 
-  // Once dataSavedAt is known (from the loaded DB record), set loadedAt.
   useEffect(() => {
     if (!loadedAt.current) loadedAt.current = dataSavedAt || Date.now();
   }, [dataSavedAt]);
@@ -113,11 +109,8 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
     if (!appState) return;
     const t = setTimeout(() => {
       const now = Date.now();
-      // Pass loadedAt to sSet — the server rejects the write if another session
-      // has saved more recently (optimistic concurrency, returns 409 if stale).
       sSet(SK.sc,   { scenarios: appState.scenarios, groups: appState.groups, _savedAt: now }, loadedAt.current);
       sSet(SK.flow, { markers: appState.markers, _savedAt: now }, loadedAt.current);
-      // Update loadedAt so subsequent saves from this session are accepted
       loadedAt.current = now;
     }, 800);
     return () => clearTimeout(t);
@@ -153,6 +146,15 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:FONT}}>
+      {/* Blur overlay — covers everything below the header */}
+      {masked && (
+        <div style={{
+          position:"fixed",top:89,left:0,right:0,bottom:0,
+          backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",
+          zIndex:50,pointerEvents:"none",
+        }}/>
+      )}
+
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"14px 28px",
         display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
@@ -179,6 +181,16 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
           <div style={{color:C.textDim,fontSize:11}}>
             {data.months[0]?.month} → {data.months[data.months.length-1]?.month}
           </div>
+          {/* Privacy mask toggle */}
+          <button
+            onClick={()=>setMasked(m=>!m)}
+            title={masked?"Show numbers":"Hide numbers"}
+            style={{background:masked?`${C.amber}22`:"transparent",
+              border:`1px solid ${masked?C.amber:C.border}`,borderRadius:6,
+              padding:"4px 10px",color:masked?C.amber:C.muted,fontSize:13,
+              cursor:"pointer",fontFamily:FONT,lineHeight:1}}>
+            {masked?"○":"●"}
+          </button>
           <button onClick={onDisconnect}
             style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,
               padding:"4px 12px",color:C.textDim,fontSize:10,cursor:"pointer",fontFamily:FONT}}>
@@ -230,19 +242,11 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
 }
 
 // ── Root ──────────────────────────────────────────────────────────────────────
-// CRITICAL: this component must render identically on server and client.
-// localStorage is not available on the server, so we cannot read it during render.
-// Solution: always render the blank shell on first render, then apply saved
-// config in useEffect (client-only). This guarantees server === client on
-// the initial render, eliminating the hydration mismatch entirely.
 export default function Dashboard() {
   const [config,  setConfig]  = useState<Config|null>(null);
   const [ready,   setReady]   = useState(false);
 
   useEffect(() => {
-    // Do NOT auto-restore config here — always go through ConnectionPanel
-    // so the password is collected when CF_DASHBOARD_PASSWORD is set.
-    // ConnectionPanel handles auto-advancing if no password is required.
     setReady(true);
   }, []);
 
@@ -251,7 +255,6 @@ export default function Dashboard() {
   if (!config) return (
     <ConnectionPanel onConnect={(cfg: Config) => {
       if (!cfg.demo) {
-        // Save connection details but NOT the password
         const { password: _pw, ...connectionOnly } = cfg;
         try { localStorage.setItem("cf-connection", JSON.stringify(connectionOnly)); } catch {}
       }

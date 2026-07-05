@@ -1,4 +1,4 @@
-# Actual Budget — Cash Flow Dashboard
+# Cashboard
 
 A self-hosted personal finance dashboard built on [Actual Budget](https://actualbudget.org/). All Actual API calls are proxied server-side — your API key never reaches the browser.
 

@@ -158,8 +158,7 @@ function DashboardInner({ config, onDisconnect }: { config:Config; onDisconnect:
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"14px 28px",
         display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <div style={{color:C.amber,fontSize:13,fontWeight:700,letterSpacing:3}}>◈ ACTUAL</div>
-          <div style={{color:C.textDim,fontSize:11}}>CASH FLOW</div>
+          <div style={{color:C.amber,fontSize:13,fontWeight:700,letterSpacing:3}}>◈ CASHBOARD</div>
           {config.demo&&<div style={{background:C.amberLow,color:C.amber,fontSize:10,
             padding:"2px 8px",borderRadius:4}}>DEMO</div>}
         </div>
@@ -267,6 +266,9 @@ export default function Dashboard() {
       config={config}
       onDisconnect={() => {
         try { localStorage.removeItem("cf-connection"); } catch {}
+        try { sessionStorage.removeItem("cf-pw"); } catch {}
+        // Delete the server-side bootstrap record so reload doesn't auto-reconnect
+        fetch("/api/state/global/cf-connection", { method: "DELETE" }).catch(()=>{});
         setConfig(null);
       }}
     />

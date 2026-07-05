@@ -1,5 +1,4 @@
 import { completeMonths, uid } from "./helpers";
-import { DEFAULT_GROUPS } from "./constants";
 import type { AppData, Month } from "@/types";
 
 // ── Category helpers ──────────────────────────────────────────────────────────
@@ -43,15 +42,11 @@ export function resolveIncome(inc: ScenarioIncome | undefined, data: AppData): n
     case "cats": {
       const months = completeMonths(data.months).slice(-12);
       if (!months.length || !inc.cats?.length) return live;
-      const fn = inc.avgOrLast === "last"
-        ? () => {
-            const m = months[months.length-1];
-            return (inc.cats||[]).reduce((t,c)=>{ const v=m.categories[c]??0; return t+(v>0?v:0); },0);
-          }
-        : () => Math.round(months.reduce((a,m)=>{
-            return a + (inc.cats||[]).reduce((t,c)=>{ const v=m.categories[c]??0; return t+(v>0?v:0); },0);
-          },0) / months.length);
-      return fn() + (inc.fixedExtra||0);
+      const cats = inc.cats||[];
+      const sum = inc.avgOrLast === "last"
+        ? cats.reduce((t,c)=>{ const v=months[months.length-1].categories[c]??0; return t+(v>0?v:0); },0)
+        : Math.round(months.reduce((a,m)=>a+cats.reduce((t,c)=>{ const v=m.categories[c]??0; return t+(v>0?v:0); },0),0)/months.length);
+      return sum + (inc.fixedExtra||0);
     }
     case "fixed":    return inc.amount ?? live;
     case "pct_live": return Math.round(live * (1 + (inc.pct||0) / 100));

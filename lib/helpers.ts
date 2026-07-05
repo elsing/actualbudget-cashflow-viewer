@@ -17,14 +17,6 @@ export const fmtD = (iso: string) => {
   const p = iso.split("-");
   return new Date(+p[0],+p[1]-1,+p[2]).toLocaleString("en-GB",{month:"short",day:"numeric"});
 };
-export const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-};
-export const currentMonthKey = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-};
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 //
@@ -72,7 +64,6 @@ async function getBudgetId(): Promise<string> {
 
 // Per-session cache of server state — avoids repeated fetches within a session
 let _serverState: Record<string,unknown>|null = null;
-let _serverChecked = false;
 
 async function loadServerState(budgetId: string): Promise<Record<string,unknown>> {
   if (_serverState) return _serverState;
@@ -137,12 +128,11 @@ export async function sSetConnection(
 }
 
 export function resetStateCache(): void {
-  _serverState  = null;
-  _serverChecked = false;
+  _serverState = null;
 }
 
 // ── Complete months only ──────────────────────────────────────────────────────
 export function completeMonths<T extends { month: string; transactions?: unknown[] }>(months: T[]): T[] {
-  const cur = currentMonthKey();
+  const cur = new Date().toISOString().slice(0,7);
   return months.filter(m => m.month < cur && (m.transactions?.length ?? 0) > 0);
 }

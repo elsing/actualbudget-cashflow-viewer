@@ -1,9 +1,10 @@
 "use client";
-import type { UiState, AppData, AppState, Scenario, Month } from "@/types";
+import type { UiState, AppData, AppState, Month } from "@/types";
+import type { Scenario } from "@/lib/finance";
 import { useState, useMemo } from "react";
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { C, FONT, CAT_PALETTE, TYPE_COLOR } from "@/lib/constants";
-import { fmt, fmtM, fmtD, fmtR, pc, todayStr, currentMonthKey } from "@/lib/helpers";
+import { fmt, fmtM, fmtD, fmtR, pc } from "@/lib/helpers";
 import { resolveIncome, resolveRow, liveAvg, liveLastCompleteMonth } from "@/lib/finance";
 import { completeMonths } from "@/lib/helpers";
 import { ChartTip } from "@/components/ui";
@@ -156,7 +157,7 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     } else { setRangeStart(month); setRangeEnd(null); }
   };
 
-  const curMon = currentMonthKey();
+  const curMon = new Date().toISOString().slice(0,7);
   // Exclude the current (partial) month from the balance chart — its data is incomplete
   const completeDisplayMonths = allMonthsDisplay.filter(m=>m.month<curMon);
   const balMonths = rangeStart&&rangeEnd
@@ -187,13 +188,20 @@ export default function MonthlyFlowTab({ data, scenarios, markers, reconciliatio
     return points;
   }, [projScen, lastActual, data]);
 
-  const balChartData = [
-    ...balMonths.map(m=>({month:m.month,balance:m.endBalance})),
-    ...(showProj&&chartEndsNow ? projPoints.map(p=>({month:p.month,projBalance:p.projBalance})) : []),
-  ];
+  const balChartData = (() => {
+    const rows: {month:string;balance?:number;projBalance?:number}[] =
+      balMonths.map(m=>({month:m.month,balance:m.endBalance}));
+    if (showProj && chartEndsNow && projPoints.length) {
+      // Merge bridge point into the last actual row (same month) — avoids duplicate x entry
+      if (rows.length && rows[rows.length-1].month === projPoints[0].month)
+        rows[rows.length-1].projBalance = projPoints[0].projBalance;
+      projPoints.slice(1).forEach(p=>rows.push({month:p.month,projBalance:p.projBalance}));
+    }
+    return rows;
+  })();
 
   // Day-by-day
-  const today  = todayStr();
+  const today  = new Date().toISOString().slice(0,10);
   const isCurrentMonth = selMonth === curMon;
   // selMData for display (start = end of day 1) — used for the header summary
   const selMData = allMonthsDisplay.find(m=>m.month===selMonth);

@@ -1,6 +1,5 @@
-import type { Scenario, ScenarioRow, ScenarioIncome } from "@/lib/finance";
-
-export type { Scenario, ScenarioRow, ScenarioIncome };
+import type { Scenario } from "@/lib/finance";
+export type { Scenario };
 
 export interface AccountObject {
   id: string;

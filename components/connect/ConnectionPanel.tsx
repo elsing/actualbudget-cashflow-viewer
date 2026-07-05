@@ -201,8 +201,7 @@ export default function ConnectionPanel({ onConnect }: Props) {
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",
       justifyContent:"center",fontFamily:FONT,padding:20}}>
       <div style={{width:520,background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:36}}>
-        <div style={{color:C.amber,fontSize:11,letterSpacing:3,marginBottom:6}}>◈ ACTUAL BUDGET</div>
-        <div style={{color:C.text,fontSize:22,fontWeight:700,marginBottom:4}}>Cash Flow Dashboard</div>
+        <div style={{color:C.text,fontSize:22,fontWeight:700,marginBottom:4}}>◈ Cashboard</div>
 
         <div style={{display:"flex",gap:16,marginBottom:24,marginTop:8}}>
           {steps.map(s=>(

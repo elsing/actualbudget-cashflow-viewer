@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { sGet, currentMonthKey, resetStateCache } from "@/lib/helpers";
+import { sGet, resetStateCache } from "@/lib/helpers";
 import { SK, DEFAULT_GROUPS } from "@/lib/constants";
 import { mkScenarios } from "@/lib/finance";
 import type { AppState, AppData, Month, Transaction } from "@/types";
@@ -199,10 +199,9 @@ export function useLoadData(config: Config | null) {
         ]);
         if (catR.ok) {
           const j = await catR.json();
-          (j.data??j??[]).forEach((c:any)=>{ 
-            if (c.hidden) return; // skip hidden categories
-            catMap[c.id]=c.name; 
-            if(c.is_income)incomeCatIds.add(c.id); 
+          (j.data??j??[]).forEach((c:any)=>{
+            catMap[c.id]=c.name; // map all, including hidden, so txs display correctly
+            if(!c.hidden && c.is_income) incomeCatIds.add(c.id);
           });
         }
         if (grpR.ok) {
@@ -274,14 +273,19 @@ export function useLoadData(config: Config | null) {
       appendLog("Fetching start balances…","pending");
       const startBalances: Record<string,number> = {};
       const allMonthKeys = Object.keys(allTxByMonth).sort();
-      const firstStart   = allMonthKeys.length ? `${allMonthKeys[0].slice(0,7)}-01` : startStr;
-      const anchor = new Date(firstStart); anchor.setDate(anchor.getDate()-1);
-      const anchorStr = anchor.toISOString().slice(0,10);
+      // Fetch current balance (no cutoff — historical cutoff is unreliable in this API version)
+      // then subtract all fetched transaction nets to derive the pre-window starting balance.
       await Promise.all(openAccounts.map(async acct => {
         try {
-          const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts/${acct.id}/balance?cutoff=${anchorStr}`, { headers: authHeaders });
-          if (r.ok) { const j=await r.json(); startBalances[acct.id]=j.data?.balance??j.balance??0; }
-          else startBalances[acct.id] = 0;
+          const r = await fetch(`/api/actual/v1/budgets/${syncId}/accounts/${acct.id}/balance`, { headers: authHeaders });
+          if (r.ok) {
+            const j = await r.json();
+            const currentBal = j.data?.balance ?? j.data ?? j.balance ?? 0;
+            const totalNet = Object.values(txsByAccount[acct.id] || {})
+              .flat()
+              .reduce((s: number, tx: any) => s + (tx.amount || 0), 0);
+            startBalances[acct.id] = currentBal - totalNet;
+          } else startBalances[acct.id] = 0;
         } catch { startBalances[acct.id] = 0; }
       }));
       updateLast("ok", openAccounts.map(a=>`${a.name}: ${new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format((startBalances[a.id]??0)/100)}`).join(" · "));

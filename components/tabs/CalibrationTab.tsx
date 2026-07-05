@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
-import type { UiState, AppData, AppState, Scenario, Group } from "@/types";
+import type { UiState, AppData, AppState, Group } from "@/types";
+import type { Scenario } from "@/lib/finance";
 import { useState, useMemo } from "react";
 import { C, FONT, TYPE_COLOR } from "@/lib/constants";
 import { fmt, fmtR, pc, fmtM } from "@/lib/helpers";

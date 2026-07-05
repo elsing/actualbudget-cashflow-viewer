@@ -1,23 +1,20 @@
-# Set base image
-FROM node:24-alpine
-
-# Set working directory
+# Stage 1: build
+FROM node:24-alpine AS builder
 WORKDIR /usr/src/app
-
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
-RUN npm install --omit=dev
-
-# Copy rest of the source code
+RUN npm ci
 COPY . .
-
-# Build the app
 RUN npm run build
 
-# Expose port
-EXPOSE 5008
+# Stage 2: runtime — only the standalone output, no source or devDeps
+FROM node:24-alpine AS runner
+WORKDIR /usr/src/app
+ENV NODE_ENV=production
+ENV PORT=5008
 
-# Run the production server
-CMD ["npm", "run", "start", "--", "--port", "5008"]
+COPY --from=builder /usr/src/app/.next/standalone ./
+COPY --from=builder /usr/src/app/.next/static ./.next/static
+COPY --from=builder /usr/src/app/public ./public
+
+EXPOSE 5008
+CMD ["node", "server.js"]

@@ -14,7 +14,6 @@ ENV PORT=5008
 
 COPY --from=builder /usr/src/app/.next/standalone ./
 COPY --from=builder /usr/src/app/.next/static ./.next/static
-COPY --from=builder /usr/src/app/public ./public
 
 EXPOSE 5008
 CMD ["node", "server.js"]
